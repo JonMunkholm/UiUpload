@@ -1,0 +1,17 @@
+.cache/
+.modcache/
+*.log
+*.exe
+*.exe~
+*.out
+*.test
+/tmp/
+/build/
+*.csv
+/accounting*
+*CLAUDE*
+
+# Environment files - NEVER commit credentials
+.env
+.env.local
+.env.*.local
