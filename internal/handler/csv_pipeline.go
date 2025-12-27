@@ -51,8 +51,6 @@ type DoneMsg string
 type ErrMsg struct{ Err error }
 
 
-type RowBuilder[Arg any] func([]string, []string) (Arg, error)
-type RowActFunc[Arg any] func(context.Context, Arg) (bool, error)
 type CsvCheck func(ctx context.Context, file string) ([]db.CsvUpload, error)
 type ActType func(ctx context.Context, fileName string) error
 
@@ -286,11 +284,15 @@ func processUploadFile(
 		return err
 	}
 
-	// 6. Write failed records file (if applicable)
+	// 8. Sanitize filename to prevent path traversal attacks
+	safeFile := filepath.Base(file)
+	if safeFile != file || strings.Contains(file, "..") {
+		return fmt.Errorf("invalid filename: %q", file)
+	}
+
+	// 9. Write failed records file (if applicable)
 	if len(failedRecords) > 1 {
 		top := filepath.Dir(dir)
-		// Sanitize filename to prevent path traversal
-		safeFile := filepath.Base(file)
 		fileName := fmt.Sprintf("%s - failed.csv", strings.TrimSuffix(safeFile, ".csv"))
 		failedRecordsPath := filepath.Join(top, fileName)
 
@@ -299,12 +301,7 @@ func processUploadFile(
 		}
 	}
 
-	// 7. Move to Uploaded directory
-	// Sanitize filename to prevent path traversal attacks
-	safeFile := filepath.Base(file)
-	if safeFile != file || strings.Contains(file, "..") {
-		return fmt.Errorf("invalid filename: %q", file)
-	}
+	// 10. Move to Uploaded directory
 
 	// Ensure Uploaded directory exists
 	uploadedDir := filepath.Join(dir, "Uploaded")

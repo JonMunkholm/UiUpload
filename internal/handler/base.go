@@ -20,7 +20,6 @@ var UploadTimeout = 5 * time.Minute
 // All upload handlers (NsUpload, SfdcUpload, AnrokUpload) implement this interface.
 type Uploader interface {
 	SetProps() error
-	PrintSomething() tea.Cmd
 }
 
 // BaseUploader provides shared functionality for all CSV upload handlers.
@@ -67,14 +66,6 @@ func (b *BaseUploader) SetActType(action string) ActType {
 			return fmt.Errorf("failed to record file in csv_uploads DB: %w", err)
 		}
 		return nil
-	}
-}
-
-// PrintSomething is a test action that returns an error message after a delay.
-func (b *BaseUploader) PrintSomething() tea.Cmd {
-	return func() tea.Msg {
-		time.Sleep(3 * time.Second)
-		return ErrMsg{Err: fmt.Errorf("bubble tea is ready")}
 	}
 }
 

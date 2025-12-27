@@ -130,7 +130,7 @@ func loadUploadMenu(title string, uploader handler.Uploader, items []MenuItem) *
 
 	return &Menu{
 		Title: title,
-		Items: append([]MenuItem{{Label: "TEST", Action: uploader.PrintSomething}}, items...),
+		Items: items,
 	}
 }
 
