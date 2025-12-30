@@ -35,13 +35,13 @@ func (a *AnrokUpload) InsertAnrokTransactions() tea.Cmd {
 	Build Param functions
 ---------------------------------------- */
 
-func (a *AnrokUpload) BuildAnrokTransactionParams(row []string, headerIdx HeaderIndex) (db.InsertAnrokTransactionsParams, error) {
+func (a *AnrokUpload) BuildAnrokTransactionParams(row []string, headerIdx HeaderIndex) (db.InsertAnrokTransactionParams, error) {
 	vrow, err := validateRow(row, headerIdx, schema.AnrokFieldSpecs)
 	if err != nil {
-		return db.InsertAnrokTransactionsParams{}, err
+		return db.InsertAnrokTransactionParams{}, err
 	}
 
-	return db.InsertAnrokTransactionsParams{
+	return db.InsertAnrokTransactionParams{
 		TransactionID:             ToPgText(vrow["Transaction ID"]),
 		CustomerID:                ToPgText(vrow["Customer ID"]),
 		CustomerName:              ToPgText(vrow["Customer name"]),
@@ -74,10 +74,10 @@ func (a *AnrokUpload) BuildAnrokTransactionParams(row []string, headerIdx Header
 
 func (a *AnrokUpload) makeDirMap() map[string]CsvProps {
 	return map[string]CsvProps{
-		"Transactions": CsvHandler[db.InsertAnrokTransactionsParams]{
+		"Transactions": CsvHandler[db.InsertAnrokTransactionParams]{
 			specs:  schema.AnrokFieldSpecs,
 			build:  a.BuildAnrokTransactionParams,
-			insert: a.insertAnrokTransactions(),
+			insert: a.insertAnrokTransaction(),
 		},
 	}
 }
@@ -86,9 +86,9 @@ func (a *AnrokUpload) makeDirMap() map[string]CsvProps {
 	Insert Wrapper
 ---------------------------------------- */
 
-func (a *AnrokUpload) insertAnrokTransactions() InsertFn[db.InsertAnrokTransactionsParams] {
-	return func(ctx context.Context, queries *db.Queries, arg db.InsertAnrokTransactionsParams) (bool, error) {
-		err := queries.InsertAnrokTransactions(ctx, arg)
+func (a *AnrokUpload) insertAnrokTransaction() InsertFn[db.InsertAnrokTransactionParams] {
+	return func(ctx context.Context, queries *db.Queries, arg db.InsertAnrokTransactionParams) (bool, error) {
+		err := queries.InsertAnrokTransaction(ctx, arg)
 		return err == nil, err
 	}
 }

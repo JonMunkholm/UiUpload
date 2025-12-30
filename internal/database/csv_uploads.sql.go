@@ -7,8 +7,6 @@ package db
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const getCsvUpload = `-- name: GetCsvUpload :many
@@ -37,42 +35,10 @@ func (q *Queries) GetCsvUpload(ctx context.Context, name string) ([]CsvUpload, e
 	return items, nil
 }
 
-const getCsvUploadsByDateRange = `-- name: GetCsvUploadsByDateRange :many
-SELECT name, action, uploaded_at
-FROM csv_uploads
-WHERE uploaded_at BETWEEN $1 AND $2
-ORDER BY uploaded_at ASC
-`
-
-type GetCsvUploadsByDateRangeParams struct {
-	UploadedAt   pgtype.Timestamp `json:"uploaded_at"`
-	UploadedAt_2 pgtype.Timestamp `json:"uploaded_at_2"`
-}
-
-func (q *Queries) GetCsvUploadsByDateRange(ctx context.Context, arg GetCsvUploadsByDateRangeParams) ([]CsvUpload, error) {
-	rows, err := q.db.Query(ctx, getCsvUploadsByDateRange, arg.UploadedAt, arg.UploadedAt_2)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []CsvUpload{}
-	for rows.Next() {
-		var i CsvUpload
-		if err := rows.Scan(&i.Name, &i.Action, &i.UploadedAt); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const insertCsvUpload = `-- name: InsertCsvUpload :exec
 INSERT INTO csv_uploads (name, action, uploaded_at)
 VALUES ($1, $2, NOW())
-ON CONFLICT (name) DO NOTHING
+ON CONFLICT (name, action) DO NOTHING
 `
 
 type InsertCsvUploadParams struct {
@@ -85,11 +51,11 @@ func (q *Queries) InsertCsvUpload(ctx context.Context, arg InsertCsvUploadParams
 	return err
 }
 
-const resetCsvUpload = `-- name: ResetCsvUpload :exec
+const resetCsvUploads = `-- name: ResetCsvUploads :exec
 DELETE FROM csv_uploads
 `
 
-func (q *Queries) ResetCsvUpload(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, resetCsvUpload)
+func (q *Queries) ResetCsvUploads(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, resetCsvUploads)
 	return err
 }

@@ -24,33 +24,8 @@ CREATE TABLE anrok_transactions (
     customer_country_code TEXT,
     jurisdictions TEXT,
     jurisdiction_ids TEXT,
-    return_ids TEXT,
+    return_ids TEXT
 
-    CONSTRAINT anrok_transactions_all_fields_unique UNIQUE (
-        transaction_id,
-        customer_id,
-        customer_name,
-        overall_vat_id_status,
-        valid_vat_ids,
-        other_vat_ids,
-        invoice_date,
-        tax_date,
-        transaction_currency,
-        sales_amount,
-        exempt_reason,
-        tax_amount,
-        invoice_amount,
-        void,
-        customer_address_line_1,
-        customer_address_city,
-        customer_address_region,
-        customer_address_postal_code,
-        customer_address_country,
-        customer_country_code,
-        jurisdictions,
-        jurisdiction_ids,
-        return_ids
-    )
 );
 
 -- +goose Down

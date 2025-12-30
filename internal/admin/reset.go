@@ -28,11 +28,14 @@ func (r *ResetDbs) ResetAll() tea.Cmd {
 		defer cancel()
 
 		if err := r.runResets(ctx, []dbResetFn{
-			r.DB.ResetNsSoLineItems,
-			r.DB.ResetNsInvoiceSalesTaxItems,
-			r.DB.ResetSfdcOppLineItems,
+			r.DB.ResetSfdcCustomers,
+			r.DB.ResetSfdcPriceBook,
+			r.DB.ResetSfdcOppDetail,
+			r.DB.ResetNsCustomers,
+			r.DB.ResetNsSoDetail,
+			r.DB.ResetNsInvoiceDetail,
 			r.DB.ResetAnrokTransactions,
-			r.DB.ResetCsvUpload,
+			r.DB.ResetCsvUploads,
 		}); err != nil {
 			return handler.ErrMsg{Err: err}
 		}

@@ -11,8 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const insertAnrokTransactions = `-- name: InsertAnrokTransactions :exec
-
+const insertAnrokTransaction = `-- name: InsertAnrokTransaction :exec
 INSERT INTO anrok_transactions (
     transaction_id,
     customer_id,
@@ -38,14 +37,10 @@ INSERT INTO anrok_transactions (
     jurisdiction_ids,
     return_ids
 )
-values (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
-)
-ON CONFLICT ON CONSTRAINT anrok_transactions_all_fields_unique
-DO NOTHING
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
 `
 
-type InsertAnrokTransactionsParams struct {
+type InsertAnrokTransactionParams struct {
 	TransactionID             pgtype.Text    `json:"transaction_id"`
 	CustomerID                pgtype.Text    `json:"customer_id"`
 	CustomerName              pgtype.Text    `json:"customer_name"`
@@ -71,8 +66,8 @@ type InsertAnrokTransactionsParams struct {
 	ReturnIds                 pgtype.Text    `json:"return_ids"`
 }
 
-func (q *Queries) InsertAnrokTransactions(ctx context.Context, arg InsertAnrokTransactionsParams) error {
-	_, err := q.db.Exec(ctx, insertAnrokTransactions,
+func (q *Queries) InsertAnrokTransaction(ctx context.Context, arg InsertAnrokTransactionParams) error {
+	_, err := q.db.Exec(ctx, insertAnrokTransaction,
 		arg.TransactionID,
 		arg.CustomerID,
 		arg.CustomerName,
@@ -100,121 +95,11 @@ func (q *Queries) InsertAnrokTransactions(ctx context.Context, arg InsertAnrokTr
 	return err
 }
 
-const removeAnrokTransactions = `-- name: RemoveAnrokTransactions :exec
-DELETE FROM anrok_transactions
-WHERE
-    ($1 IS NULL OR transaction_id = $1)
-    AND
-    ($2 IS NULL OR id = $2)
-`
-
-type RemoveAnrokTransactionsParams struct {
-	Column1 interface{} `json:"column_1"`
-	Column2 interface{} `json:"column_2"`
-}
-
-func (q *Queries) RemoveAnrokTransactions(ctx context.Context, arg RemoveAnrokTransactionsParams) error {
-	_, err := q.db.Exec(ctx, removeAnrokTransactions, arg.Column1, arg.Column2)
-	return err
-}
-
 const resetAnrokTransactions = `-- name: ResetAnrokTransactions :exec
-DELETE From anrok_transactions
+DELETE FROM anrok_transactions
 `
 
 func (q *Queries) ResetAnrokTransactions(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, resetAnrokTransactions)
 	return err
-}
-
-const updateAnrokTransactions = `-- name: UpdateAnrokTransactions :one
-
-UPDATE anrok_transactions
-    SET
-
-    transaction_id = $2,
-    customer_id = $3,
-    customer_name = $4,
-    overall_vat_id_status = $5,
-    valid_vat_ids = $6,
-    other_vat_ids = $7,
-    invoice_date = $8,
-    tax_date = $9,
-    transaction_currency = $10,
-    sales_amount = $11,
-    exempt_reason = $12,
-    tax_amount = $13,
-    invoice_amount = $14,
-    void = $15,
-    customer_address_line_1 = $16,
-    customer_address_city = $17,
-    customer_address_region = $18,
-    customer_address_postal_code = $19,
-    customer_address_country = $20,
-    customer_country_code = $21,
-    jurisdictions = $22,
-    jurisdiction_ids = $23,
-    return_ids = $24
-
-WHERE id = $1
-RETURNING id
-`
-
-type UpdateAnrokTransactionsParams struct {
-	ID                        pgtype.UUID    `json:"id"`
-	TransactionID             pgtype.Text    `json:"transaction_id"`
-	CustomerID                pgtype.Text    `json:"customer_id"`
-	CustomerName              pgtype.Text    `json:"customer_name"`
-	OverallVatIDStatus        pgtype.Text    `json:"overall_vat_id_status"`
-	ValidVatIds               pgtype.Text    `json:"valid_vat_ids"`
-	OtherVatIds               pgtype.Text    `json:"other_vat_ids"`
-	InvoiceDate               pgtype.Date    `json:"invoice_date"`
-	TaxDate                   pgtype.Date    `json:"tax_date"`
-	TransactionCurrency       pgtype.Text    `json:"transaction_currency"`
-	SalesAmount               pgtype.Numeric `json:"sales_amount"`
-	ExemptReason              pgtype.Text    `json:"exempt_reason"`
-	TaxAmount                 pgtype.Numeric `json:"tax_amount"`
-	InvoiceAmount             pgtype.Numeric `json:"invoice_amount"`
-	Void                      pgtype.Bool    `json:"void"`
-	CustomerAddressLine1      pgtype.Text    `json:"customer_address_line_1"`
-	CustomerAddressCity       pgtype.Text    `json:"customer_address_city"`
-	CustomerAddressRegion     pgtype.Text    `json:"customer_address_region"`
-	CustomerAddressPostalCode pgtype.Text    `json:"customer_address_postal_code"`
-	CustomerAddressCountry    pgtype.Text    `json:"customer_address_country"`
-	CustomerCountryCode       pgtype.Text    `json:"customer_country_code"`
-	Jurisdictions             pgtype.Text    `json:"jurisdictions"`
-	JurisdictionIds           pgtype.Text    `json:"jurisdiction_ids"`
-	ReturnIds                 pgtype.Text    `json:"return_ids"`
-}
-
-func (q *Queries) UpdateAnrokTransactions(ctx context.Context, arg UpdateAnrokTransactionsParams) (pgtype.UUID, error) {
-	row := q.db.QueryRow(ctx, updateAnrokTransactions,
-		arg.ID,
-		arg.TransactionID,
-		arg.CustomerID,
-		arg.CustomerName,
-		arg.OverallVatIDStatus,
-		arg.ValidVatIds,
-		arg.OtherVatIds,
-		arg.InvoiceDate,
-		arg.TaxDate,
-		arg.TransactionCurrency,
-		arg.SalesAmount,
-		arg.ExemptReason,
-		arg.TaxAmount,
-		arg.InvoiceAmount,
-		arg.Void,
-		arg.CustomerAddressLine1,
-		arg.CustomerAddressCity,
-		arg.CustomerAddressRegion,
-		arg.CustomerAddressPostalCode,
-		arg.CustomerAddressCountry,
-		arg.CustomerCountryCode,
-		arg.Jurisdictions,
-		arg.JurisdictionIds,
-		arg.ReturnIds,
-	)
-	var id pgtype.UUID
-	err := row.Scan(&id)
-	return id, err
 }

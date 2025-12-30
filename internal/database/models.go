@@ -41,53 +41,75 @@ type CsvUpload struct {
 	UploadedAt pgtype.Timestamp `json:"uploaded_at"`
 }
 
-type NsInvoiceSalesTaxItem struct {
-	ID                      pgtype.UUID    `json:"id"`
-	Type                    pgtype.Text    `json:"type"`
-	Date                    pgtype.Date    `json:"date"`
-	DateDue                 pgtype.Date    `json:"date_due"`
-	DocumentNumber          pgtype.Text    `json:"document_number"`
-	Name                    pgtype.Text    `json:"name"`
-	Memo                    pgtype.Text    `json:"memo"`
-	Item                    pgtype.Text    `json:"item"`
-	Qty                     pgtype.Numeric `json:"qty"`
-	ContractQuantity        pgtype.Numeric `json:"contract_quantity"`
-	UnitPrice               pgtype.Numeric `json:"unit_price"`
-	Amount                  pgtype.Numeric `json:"amount"`
-	StartDateLine           pgtype.Date    `json:"start_date_line"`
-	EndDateLineLevel        pgtype.Date    `json:"end_date_line_level"`
-	Account                 pgtype.Text    `json:"account"`
-	SalesforceOpportunityID pgtype.Text    `json:"salesforce_opportunity_id"`
-	SalesforcePricebookID   pgtype.Text    `json:"salesforce_pricebook_id"`
-	ItemInternalID          pgtype.Text    `json:"item_internal_id"`
-	EntityInternalID        pgtype.Text    `json:"entity_internal_id"`
-	ShippingAddressCity     pgtype.Text    `json:"shipping_address_city"`
-	ShippingAddressState    pgtype.Text    `json:"shipping_address_state"`
-	ShippingAddressCountry  pgtype.Text    `json:"shipping_address_country"`
+type NsCustomer struct {
+	ID             pgtype.UUID    `json:"id"`
+	SalesforceIDIo pgtype.Text    `json:"salesforce_id_io"`
+	InternalID     pgtype.Text    `json:"internal_id"`
+	Name           pgtype.Text    `json:"name"`
+	Duplicate      pgtype.Text    `json:"duplicate"`
+	CompanyName    pgtype.Text    `json:"company_name"`
+	Balance        pgtype.Numeric `json:"balance"`
+	UnbilledOrders pgtype.Numeric `json:"unbilled_orders"`
+	OverdueBalance pgtype.Numeric `json:"overdue_balance"`
+	DaysOverdue    pgtype.Numeric `json:"days_overdue"`
 }
 
-type NsSoLineItem struct {
-	ID                          pgtype.UUID    `json:"id"`
-	SalesforceOpportunityID     pgtype.Text    `json:"salesforce_opportunity_id"`
-	SalesforceOpportunityLineID pgtype.Text    `json:"salesforce_opportunity_line_id"`
-	CustomerProject             string         `json:"customer_project"`
-	DocumentNumber              pgtype.Text    `json:"document_number"`
-	DocumentDate                pgtype.Date    `json:"document_date"`
-	StartDate                   pgtype.Date    `json:"start_date"`
-	EndDate                     pgtype.Date    `json:"end_date"`
-	ItemName                    pgtype.Text    `json:"item_name"`
-	ItemDisplayName             pgtype.Text    `json:"item_display_name"`
-	LineStartDate               pgtype.Date    `json:"line_start_date"`
-	LineEndDate                 pgtype.Date    `json:"line_end_date"`
-	Quantity                    pgtype.Numeric `json:"quantity"`
-	ContractQuantity            pgtype.Numeric `json:"contract_quantity"`
-	UnitPrice                   pgtype.Numeric `json:"unit_price"`
-	TotalAmountDuePartner       pgtype.Numeric `json:"total_amount_due_partner"`
-	AmountGross                 pgtype.Numeric `json:"amount_gross"`
-	TermsDaysTillNetDue         pgtype.Numeric `json:"terms_days_till_net_due"`
+type NsInvoiceDetail struct {
+	ID                     pgtype.UUID    `json:"id"`
+	SfdcOppID              pgtype.Text    `json:"sfdc_opp_id"`
+	SfdcOppLineID          pgtype.Text    `json:"sfdc_opp_line_id"`
+	SfdcPricebookID        pgtype.Text    `json:"sfdc_pricebook_id"`
+	CustomerInternalID     pgtype.Text    `json:"customer_internal_id"`
+	ProductInternalID      pgtype.Text    `json:"product_internal_id"`
+	Type                   pgtype.Text    `json:"type"`
+	Date                   pgtype.Date    `json:"date"`
+	DateDue                pgtype.Date    `json:"date_due"`
+	DocumentNumber         pgtype.Text    `json:"document_number"`
+	Name                   pgtype.Text    `json:"name"`
+	Memo                   pgtype.Text    `json:"memo"`
+	Item                   pgtype.Text    `json:"item"`
+	Qty                    pgtype.Numeric `json:"qty"`
+	ContractQuantity       pgtype.Numeric `json:"contract_quantity"`
+	UnitPrice              pgtype.Numeric `json:"unit_price"`
+	Amount                 pgtype.Numeric `json:"amount"`
+	StartDateLine          pgtype.Date    `json:"start_date_line"`
+	EndDateLineLevel       pgtype.Date    `json:"end_date_line_level"`
+	Account                pgtype.Text    `json:"account"`
+	ShippingAddressCity    pgtype.Text    `json:"shipping_address_city"`
+	ShippingAddressState   pgtype.Text    `json:"shipping_address_state"`
+	ShippingAddressCountry pgtype.Text    `json:"shipping_address_country"`
 }
 
-type SfdcOppLineItem struct {
+type NsSoDetail struct {
+	ID                  pgtype.UUID    `json:"id"`
+	SfdcOppID           pgtype.Text    `json:"sfdc_opp_id"`
+	SfdcOppLineID       pgtype.Text    `json:"sfdc_opp_line_id"`
+	CustomerInternalID  pgtype.Text    `json:"customer_internal_id"`
+	ProductInternalID   pgtype.Text    `json:"product_internal_id"`
+	CustomerProject     string         `json:"customer_project"`
+	SoNumber            pgtype.Text    `json:"so_number"`
+	DocumentDate        pgtype.Date    `json:"document_date"`
+	StartDate           pgtype.Date    `json:"start_date"`
+	EndDate             pgtype.Date    `json:"end_date"`
+	ItemName            pgtype.Text    `json:"item_name"`
+	ItemDisplayName     pgtype.Text    `json:"item_display_name"`
+	LineStartDate       pgtype.Date    `json:"line_start_date"`
+	LineEndDate         pgtype.Date    `json:"line_end_date"`
+	Quantity            pgtype.Numeric `json:"quantity"`
+	UnitPrice           pgtype.Numeric `json:"unit_price"`
+	AmountGross         pgtype.Numeric `json:"amount_gross"`
+	TermsDaysTillNetDue pgtype.Numeric `json:"terms_days_till_net_due"`
+}
+
+type SfdcCustomer struct {
+	ID                pgtype.UUID `json:"id"`
+	AccountIDCasesafe pgtype.Text `json:"account_id_casesafe"`
+	AccountName       pgtype.Text `json:"account_name"`
+	LastActivity      pgtype.Date `json:"last_activity"`
+	Type              pgtype.Text `json:"type"`
+}
+
+type SfdcOppDetail struct {
 	ID                           pgtype.UUID    `json:"id"`
 	OpportunityID                pgtype.Text    `json:"opportunity_id"`
 	OpportunityProductCasesafeID pgtype.Text    `json:"opportunity_product_casesafe_id"`
@@ -115,4 +137,13 @@ type SfdcOppLineItem struct {
 	TotalAmountDueCustomer       pgtype.Numeric `json:"total_amount_due_customer"`
 	TotalAmountDuePartner        pgtype.Numeric `json:"total_amount_due_partner"`
 	ActiveProduct                pgtype.Bool    `json:"active_product"`
+}
+
+type SfdcPriceBook struct {
+	ID                pgtype.UUID    `json:"id"`
+	PriceBookName     pgtype.Text    `json:"price_book_name"`
+	ListPrice         pgtype.Numeric `json:"list_price"`
+	ProductName       pgtype.Text    `json:"product_name"`
+	ProductCode       pgtype.Text    `json:"product_code"`
+	ProductIDCasesafe pgtype.Text    `json:"product_id_casesafe"`
 }

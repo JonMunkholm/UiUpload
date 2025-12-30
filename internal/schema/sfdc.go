@@ -1,31 +1,48 @@
 package schema
 
-// SfdcFieldSpecs defines the expected CSV columns for Salesforce Opportunity reports.
-var SfdcFieldSpecs = []FieldSpec{
-	{Name: "Opportunity ID Casesafe", Type: FieldText, Required: true},
-	{Name: "Opportunity Product Casesafe ID", Type: FieldText, Required: true},
-	{Name: "Opportunity Name", Type: FieldText, Required: true},
-	{Name: "Account Name", Type: FieldText, Required: true},
-	{Name: "Close Date", Type: FieldDate, Required: true},
-	{Name: "Booked Date", Type: FieldDate, Required: true},
-	{Name: "Fiscal Period", Type: FieldText, Required: true},
-	{Name: "Payment Schedule", Type: FieldText, Required: true},
-	{Name: "Payment Due", Type: FieldText, Required: true},
-	{Name: "Contract Start Date", Type: FieldDate, Required: true},
-	{Name: "Contract End Date", Type: FieldDate, Required: true},
-	{Name: "Term in Months_deprecated", Type: FieldNumeric, Required: true},
-	{Name: "Product Name", Type: FieldText, Required: true},
-	{Name: "Deployment Type", Type: FieldText, Required: true},
-	{Name: "Amount", Type: FieldNumeric, Required: true},
-	{Name: "Quantity", Type: FieldNumeric, Required: true},
-	{Name: "List Price", Type: FieldNumeric, Required: true},
-	{Name: "Sales Price", Type: FieldNumeric, Required: true},
-	{Name: "Total Price", Type: FieldNumeric, Required: true},
-	{Name: "Start Date", Type: FieldDate, Required: true},
-	{Name: "End Date", Type: FieldDate, Required: true},
-	{Name: "Term in Months", Type: FieldNumeric, Required: true},
-	{Name: "Product Code", Type: FieldText, Required: true},
-	{Name: "Total Amount Due - Customer", Type: FieldNumeric, Required: true},
-	{Name: "Total Amount Due - Partner", Type: FieldNumeric, Required: true},
-	{Name: "Active Product", Type: FieldBool, Required: true},
+// SfdcCustomerFieldSpecs defines the expected CSV columns for Salesforce customer data.
+var SfdcCustomerFieldSpecs = []FieldSpec{
+	{Name: "account_id_casesafe", Type: FieldText, Required: false, AllowEmpty: true},
+	{Name: "account_name", Type: FieldText, Required: false, AllowEmpty: true},
+	{Name: "last_activity", Type: FieldDate, Required: false, AllowEmpty: true},
+	{Name: "type", Type: FieldText, Required: false, AllowEmpty: true},
+}
+
+// SfdcPriceBookFieldSpecs defines the expected CSV columns for Salesforce price book data.
+var SfdcPriceBookFieldSpecs = []FieldSpec{
+	{Name: "price_book_name", Type: FieldText, Required: false, AllowEmpty: true},
+	{Name: "list_price", Type: FieldNumeric, Required: false, AllowEmpty: true},
+	{Name: "product_name", Type: FieldText, Required: false, AllowEmpty: true},
+	{Name: "product_code", Type: FieldText, Required: false, AllowEmpty: true},
+	{Name: "product_id_casesafe", Type: FieldText, Required: false, AllowEmpty: true},
+}
+
+// SfdcOppDetailFieldSpecs defines the expected CSV columns for Salesforce opportunity detail data.
+var SfdcOppDetailFieldSpecs = []FieldSpec{
+	{Name: "opportunity_id", Type: FieldText, Required: false, AllowEmpty: true},
+	{Name: "opportunity_product_casesafe_id", Type: FieldText, Required: false, AllowEmpty: true},
+	{Name: "opportunity_name", Type: FieldText, Required: false, AllowEmpty: true},
+	{Name: "account_name", Type: FieldText, Required: false, AllowEmpty: true},
+	{Name: "close_date", Type: FieldDate, Required: false, AllowEmpty: true},
+	{Name: "booked_date", Type: FieldDate, Required: false, AllowEmpty: true},
+	{Name: "fiscal_period", Type: FieldText, Required: false, AllowEmpty: true},
+	{Name: "payment_schedule", Type: FieldText, Required: false, AllowEmpty: true},
+	{Name: "payment_due", Type: FieldText, Required: false, AllowEmpty: true},
+	{Name: "contract_start_date", Type: FieldDate, Required: false, AllowEmpty: true},
+	{Name: "contract_end_date", Type: FieldDate, Required: false, AllowEmpty: true},
+	{Name: "term_in_months_deprecated", Type: FieldNumeric, Required: false, AllowEmpty: true},
+	{Name: "product_name", Type: FieldText, Required: false, AllowEmpty: true},
+	{Name: "deployment_type", Type: FieldText, Required: false, AllowEmpty: true},
+	{Name: "amount", Type: FieldNumeric, Required: false, AllowEmpty: true},
+	{Name: "quantity", Type: FieldNumeric, Required: false, AllowEmpty: true},
+	{Name: "list_price", Type: FieldNumeric, Required: false, AllowEmpty: true},
+	{Name: "sales_price", Type: FieldNumeric, Required: false, AllowEmpty: true},
+	{Name: "total_price", Type: FieldNumeric, Required: false, AllowEmpty: true},
+	{Name: "start_date", Type: FieldDate, Required: false, AllowEmpty: true},
+	{Name: "end_date", Type: FieldDate, Required: false, AllowEmpty: true},
+	{Name: "term_in_months", Type: FieldNumeric, Required: false, AllowEmpty: true},
+	{Name: "product_code", Type: FieldText, Required: false, AllowEmpty: true},
+	{Name: "total_amount_due_customer", Type: FieldNumeric, Required: false, AllowEmpty: true},
+	{Name: "total_amount_due_partner", Type: FieldNumeric, Required: false, AllowEmpty: true},
+	{Name: "active_product", Type: FieldBool, Required: false, AllowEmpty: true},
 }

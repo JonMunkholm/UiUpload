@@ -137,8 +137,9 @@ func loadUploadMenu(title string, uploader handler.Uploader, items []MenuItem) *
 func loadNsUploadMenu(m *Model) *Menu {
 	h := handler.NewNsUpload(m.pool)
 	return loadUploadMenu("NS - Upload", h, []MenuItem{
-		{Label: "Upload SO line item - all lines", Action: h.InsertSoLineItem},
-		{Label: "Upload Invoice line item - sales tax", Action: h.InsertInvoiceSalesTaxItems},
+		{Label: "Upload Customers", Action: h.InsertNsCustomers},
+		{Label: "Upload SO Detail", Action: h.InsertNsSoDetail},
+		{Label: "Upload Invoice Detail", Action: h.InsertNsInvoiceDetail},
 		{Label: "Back"},
 	})
 }
@@ -146,7 +147,9 @@ func loadNsUploadMenu(m *Model) *Menu {
 func loadSfdcUploadMenu(m *Model) *Menu {
 	h := handler.NewSfdcUpload(m.pool)
 	return loadUploadMenu("SFDC - Upload", h, []MenuItem{
-		{Label: "Upload Opp line item - all lines", Action: h.InsertClosedWonProds},
+		{Label: "Upload Customers", Action: h.InsertSfdcCustomers},
+		{Label: "Upload Price Book", Action: h.InsertSfdcPriceBook},
+		{Label: "Upload Opps Detail", Action: h.InsertSfdcOppDetail},
 		{Label: "Back"},
 	})
 }
@@ -154,9 +157,7 @@ func loadSfdcUploadMenu(m *Model) *Menu {
 func loadAnrokUploadMenu(m *Model) *Menu {
 	h := handler.NewAnrokUpload(m.pool)
 	return loadUploadMenu("Anrok - Upload", h, []MenuItem{
-		{Label: "Upload Anrok transactions", Action: h.InsertAnrokTransactions},
+		{Label: "Upload Anrok Transactions", Action: h.InsertAnrokTransactions},
 		{Label: "Back"},
 	})
 }
-
-
