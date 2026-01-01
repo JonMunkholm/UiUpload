@@ -87,9 +87,10 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 		<div id="table-container" data-table-key={ tableKey }>
 			@TablePartial(tableKey, info, data)
 		</div>
-		<!-- Initialize column toggle -->
+		<!-- Initialize table features -->
 		<script>
 			document.addEventListener('DOMContentLoaded', function() {
+				initSortPersistence();
 				initColumnToggle();
 			});
 		</script>

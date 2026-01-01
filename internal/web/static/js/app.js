@@ -382,3 +382,65 @@ document.body.addEventListener('htmx:afterSwap', function(e) {
         initColumnToggle();
     }
 });
+
+// ============================================================================
+// Sort Persistence Feature
+// ============================================================================
+
+// Get localStorage key for a table's sort preference
+function getSortStorageKey(tableKey) {
+    return 'sort_' + tableKey;
+}
+
+// Get saved sort from localStorage
+function getSavedSort(tableKey) {
+    const stored = localStorage.getItem(getSortStorageKey(tableKey));
+    if (stored) {
+        try {
+            return JSON.parse(stored);
+        } catch (e) {
+            return null;
+        }
+    }
+    return null;
+}
+
+// Save sort preference to localStorage
+function saveSort(tableKey, column, dir) {
+    localStorage.setItem(getSortStorageKey(tableKey), JSON.stringify({ column, dir }));
+}
+
+// On page load: redirect to saved sort if no URL sort params
+function initSortPersistence() {
+    const tableKey = getTableKey();
+    if (!tableKey) return;
+
+    const url = new URL(window.location.href);
+    const hasUrlSort = url.searchParams.has('sort');
+
+    if (!hasUrlSort) {
+        const saved = getSavedSort(tableKey);
+        if (saved) {
+            url.searchParams.set('sort', saved.column);
+            url.searchParams.set('dir', saved.dir);
+            url.searchParams.set('page', '1');
+            window.location.replace(url.toString());
+        }
+    }
+}
+
+// Save sort when HTMX request includes sort params
+document.body.addEventListener('htmx:configRequest', function(e) {
+    const tableKey = getTableKey();
+    if (!tableKey) return;
+
+    const path = e.detail.path;
+    if (path.includes('/table/' + tableKey) && path.includes('sort=')) {
+        const url = new URL(path, window.location.origin);
+        const column = url.searchParams.get('sort');
+        const dir = url.searchParams.get('dir');
+        if (column && dir) {
+            saveSort(tableKey, column, dir);
+        }
+    }
+});
