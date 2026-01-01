@@ -792,3 +792,78 @@ func quoteColumns(cols []string) []string {
 	}
 	return quoted
 }
+
+// DeleteRows deletes rows by their unique key values.
+// Keys are in format "val1|val2" for composite keys.
+// Returns count of deleted rows.
+func (s *Service) DeleteRows(ctx context.Context, tableKey string, keys []string) (int, error) {
+	def, ok := Get(tableKey)
+	if !ok {
+		return 0, fmt.Errorf("unknown table: %s", tableKey)
+	}
+
+	uniqueKey := def.Info.UniqueKey
+	if len(uniqueKey) == 0 {
+		return 0, fmt.Errorf("table %s has no unique key defined", tableKey)
+	}
+
+	// Build DB column names for unique key columns
+	dbCols := make([]string, len(uniqueKey))
+	for i, col := range uniqueKey {
+		dbCol := ""
+		for _, spec := range def.FieldSpecs {
+			if strings.EqualFold(spec.Name, col) && spec.DBColumn != "" {
+				dbCol = spec.DBColumn
+				break
+			}
+		}
+		if dbCol == "" {
+			dbCol = toDBColumnName(col)
+		}
+		dbCols[i] = dbCol
+	}
+
+	var totalDeleted int64
+
+	if len(uniqueKey) == 1 {
+		// Single column key - use ANY for batch efficiency
+		query := fmt.Sprintf(
+			"DELETE FROM %s WHERE %s = ANY($1)",
+			quoteIdentifier(tableKey),
+			quoteIdentifier(dbCols[0]),
+		)
+		result, err := s.pool.Exec(ctx, query, keys)
+		if err != nil {
+			return 0, fmt.Errorf("delete failed: %w", err)
+		}
+		totalDeleted = result.RowsAffected()
+	} else {
+		// Composite key - delete each key individually
+		for _, key := range keys {
+			parts := strings.Split(key, "|")
+			if len(parts) != len(uniqueKey) {
+				continue // Invalid key format, skip
+			}
+
+			conditions := make([]string, len(dbCols))
+			args := make([]interface{}, len(parts))
+			for i, part := range parts {
+				conditions[i] = fmt.Sprintf("%s = $%d", quoteIdentifier(dbCols[i]), i+1)
+				args[i] = part
+			}
+
+			query := fmt.Sprintf(
+				"DELETE FROM %s WHERE %s",
+				quoteIdentifier(tableKey),
+				strings.Join(conditions, " AND "),
+			)
+			result, err := s.pool.Exec(ctx, query, args...)
+			if err != nil {
+				continue // Log but continue with other keys
+			}
+			totalDeleted += result.RowsAffected()
+		}
+	}
+
+	return int(totalDeleted), nil
+}

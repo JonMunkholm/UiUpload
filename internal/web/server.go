@@ -82,6 +82,9 @@ func (s *Server) setupRoutes() {
 		// Duplicate check
 		r.Post("/check-duplicates/{tableKey}", s.handleCheckDuplicates)
 
+		// Delete rows
+		r.Post("/delete/{tableKey}", s.handleDeleteRows)
+
 		// Reset operations
 		r.Post("/reset/{tableKey}", s.handleReset)
 		r.Post("/reset", s.handleResetAll)

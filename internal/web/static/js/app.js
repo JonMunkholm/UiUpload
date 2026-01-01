@@ -1111,3 +1111,155 @@ function formatDBDuplicatesWarning(existing, uniqueKey, loading = false, error =
     html += '</div></div>';
     return html;
 }
+
+// ============================================================================
+// Row Selection & Bulk Delete
+// ============================================================================
+
+// Set to track selected row keys
+let selectedRows = new Set();
+
+// Handle "Select All" checkbox toggle
+function toggleSelectAll(checkbox) {
+    document.querySelectorAll('.row-checkbox').forEach(cb => {
+        cb.checked = checkbox.checked;
+    });
+    updateSelectionFromCheckboxes();
+    updateSelectionUI();
+}
+
+// Handle individual row checkbox change
+function updateSelection() {
+    updateSelectionFromCheckboxes();
+    updateSelectionUI();
+
+    // Update "select all" checkbox state
+    const allCheckboxes = document.querySelectorAll('.row-checkbox');
+    const checkedCheckboxes = document.querySelectorAll('.row-checkbox:checked');
+    const selectAll = document.getElementById('select-all');
+    if (selectAll) {
+        selectAll.checked = allCheckboxes.length > 0 && allCheckboxes.length === checkedCheckboxes.length;
+        selectAll.indeterminate = checkedCheckboxes.length > 0 && checkedCheckboxes.length < allCheckboxes.length;
+    }
+}
+
+// Sync selectedRows Set with current checkbox states
+function updateSelectionFromCheckboxes() {
+    selectedRows.clear();
+    document.querySelectorAll('.row-checkbox:checked').forEach(cb => {
+        const key = cb.dataset.key;
+        if (key) selectedRows.add(key);
+    });
+}
+
+// Update the selection bar visibility and count
+function updateSelectionUI() {
+    const count = selectedRows.size;
+    const bar = document.getElementById('selection-bar');
+    const countSpan = document.getElementById('selection-count');
+
+    if (!bar) return;
+
+    if (count > 0) {
+        bar.classList.remove('hidden');
+        if (countSpan) {
+            countSpan.textContent = `${count} row${count > 1 ? 's' : ''} selected`;
+        }
+    } else {
+        bar.classList.add('hidden');
+    }
+}
+
+// Handle row click - show details unless checkbox was clicked
+function handleRowClick(event, row) {
+    // If clicking on the checkbox cell, don't show details
+    if (event.target.closest('td')?.querySelector('.row-checkbox')) {
+        return;
+    }
+    showRowDetails(row);
+}
+
+// Show delete confirmation modal
+function showDeleteModal() {
+    const deleteCount = document.getElementById('delete-count');
+    if (deleteCount) {
+        deleteCount.textContent = selectedRows.size;
+    }
+    document.getElementById('delete-modal').classList.remove('hidden');
+}
+
+// Hide delete confirmation modal
+function hideDeleteModal() {
+    const modal = document.getElementById('delete-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+// Perform the delete operation
+async function confirmDelete() {
+    const tableKey = getTableKey();
+    if (!tableKey || selectedRows.size === 0) {
+        hideDeleteModal();
+        return;
+    }
+
+    const keys = Array.from(selectedRows);
+
+    try {
+        const response = await fetch(`/api/delete/${tableKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ keys })
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            showToast(`Deleted ${result.deleted} row${result.deleted !== 1 ? 's' : ''}`);
+            hideDeleteModal();
+            selectedRows.clear();
+            updateSelectionUI();
+
+            // Refresh the table via HTMX
+            const container = document.getElementById('table-container');
+            if (container) {
+                htmx.trigger(container, 'htmx:load');
+                // Reload current page
+                const url = new URL(window.location.href);
+                htmx.ajax('GET', url.pathname + url.search, { target: '#table-container', swap: 'innerHTML' });
+            }
+        } else {
+            const err = await response.json();
+            showToast(err.error || 'Delete failed', true);
+        }
+    } catch (e) {
+        console.error('Delete error:', e);
+        showToast('Delete failed', true);
+    }
+}
+
+// Close delete modal on outside click
+document.addEventListener('click', function(e) {
+    const modal = document.getElementById('delete-modal');
+    if (modal && e.target === modal) {
+        hideDeleteModal();
+    }
+});
+
+// Clear selection on page change (HTMX navigation)
+document.body.addEventListener('htmx:afterSwap', function(e) {
+    if (e.detail.target.id === 'table-container') {
+        selectedRows.clear();
+        updateSelectionUI();
+        // Reset select-all checkbox
+        const selectAll = document.getElementById('select-all');
+        if (selectAll) {
+            selectAll.checked = false;
+            selectAll.indeterminate = false;
+        }
+    }
+});
+
+// Close column dropdown helper (for keyboard shortcuts)
+function closeColumnDropdown() {
+    const dropdown = document.getElementById('column-dropdown');
+    if (dropdown) dropdown.classList.add('hidden');
+}

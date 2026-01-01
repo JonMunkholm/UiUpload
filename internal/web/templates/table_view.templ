@@ -3,6 +3,7 @@ package templates
 import (
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/JonMunkholm/TUI/internal/core"
@@ -83,8 +84,25 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 			</div>
 		</div>
 
+		<!-- Selection Bar (hidden until rows selected) -->
+		if len(info.UniqueKey) > 0 {
+			<div id="selection-bar" class="hidden mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center justify-between">
+				<span id="selection-count" class="text-sm font-medium text-red-800">0 rows selected</span>
+				<button
+					type="button"
+					onclick="showDeleteModal()"
+					class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 transition-colors"
+				>
+					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+					</svg>
+					Delete Selected
+				</button>
+			</div>
+		}
+
 		<!-- Table container with id for HTMX swaps -->
-		<div id="table-container" data-table-key={ tableKey }>
+		<div id="table-container" data-table-key={ tableKey } data-unique-key={ toJSON(info.UniqueKey) }>
 			@TablePartial(tableKey, info, data)
 		</div>
 
@@ -101,6 +119,42 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 				</div>
 				<div id="row-modal-content" class="p-4 overflow-y-auto">
 					<!-- Content injected by JS -->
+				</div>
+			</div>
+		</div>
+
+		<!-- Delete Confirmation Modal -->
+		<div id="delete-modal" class="hidden fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
+			<div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+				<div class="flex items-center justify-between p-4 border-b">
+					<h3 class="text-lg font-semibold text-gray-900">Confirm Delete</h3>
+					<button onclick="hideDeleteModal()" class="text-gray-400 hover:text-gray-600">
+						<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+						</svg>
+					</button>
+				</div>
+				<div class="p-6">
+					<p class="text-gray-700 mb-2">
+						Are you sure you want to delete <span id="delete-count" class="font-semibold">0</span> rows?
+					</p>
+					<p class="text-sm text-red-600">This action cannot be undone.</p>
+				</div>
+				<div class="flex justify-end gap-3 p-4 border-t bg-gray-50 rounded-b-lg">
+					<button
+						type="button"
+						onclick="hideDeleteModal()"
+						class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+					>
+						Cancel
+					</button>
+					<button
+						type="button"
+						onclick="confirmDelete()"
+						class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 transition-colors"
+					>
+						Delete
+					</button>
 				</div>
 			</div>
 		</div>
@@ -136,6 +190,18 @@ templ TablePartial(tableKey string, info core.TableInfo, data *core.TableDataRes
 			<table class="min-w-full divide-y divide-gray-200">
 				<thead class="bg-gray-50">
 					<tr>
+						<!-- Checkbox column header (only if table has unique key) -->
+						if len(info.UniqueKey) > 0 {
+							<th class="px-4 py-3 w-10">
+								<input
+									type="checkbox"
+									id="select-all"
+									onclick="toggleSelectAll(this)"
+									class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+									title="Select all rows on this page"
+								/>
+							</th>
+						}
 						for _, col := range info.Columns {
 							@SortableHeader(tableKey, col, data)
 						}
@@ -143,7 +209,18 @@ templ TablePartial(tableKey string, info core.TableInfo, data *core.TableDataRes
 				</thead>
 				<tbody class="bg-white divide-y divide-gray-100">
 					for _, row := range data.Rows {
-						<tr class="hover:bg-blue-50 transition-colors cursor-pointer" onclick="showRowDetails(this)">
+						<tr class="hover:bg-blue-50 transition-colors cursor-pointer" onclick="handleRowClick(event, this)">
+							<!-- Checkbox column (only if table has unique key) -->
+							if len(info.UniqueKey) > 0 {
+								<td class="px-4 py-2 w-10" onclick="event.stopPropagation()">
+									<input
+										type="checkbox"
+										class="row-checkbox h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+										data-key={ buildRowKey(info.UniqueKey, row) }
+										onclick="updateSelection()"
+									/>
+								</td>
+							}
 							for _, col := range info.Columns {
 								<td class="px-4 py-2 text-sm text-gray-700 whitespace-nowrap max-w-xs truncate" title={ formatCellTitle(row[col]) }>
 									{ formatCell(row[col]) }
@@ -449,4 +526,50 @@ func pageNumbers(data *core.TableDataResult) []int {
 	pages = append(pages, data.TotalPages)
 
 	return pages
+}
+
+// buildRowKey builds the unique key value for a row.
+// Joins multiple key column values with "|" separator.
+func buildRowKey(uniqueKey []string, row core.TableRow) string {
+	if len(uniqueKey) == 0 {
+		return ""
+	}
+
+	parts := make([]string, len(uniqueKey))
+	for i, col := range uniqueKey {
+		val := row[col]
+		parts[i] = formatCellForKey(val)
+	}
+	return strings.Join(parts, "|")
+}
+
+// formatCellForKey formats a cell value as a string key.
+func formatCellForKey(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+
+	switch val := v.(type) {
+	case pgtype.Text:
+		if !val.Valid {
+			return ""
+		}
+		return val.String
+	case pgtype.Numeric:
+		if !val.Valid {
+			return ""
+		}
+		f, err := val.Float64Value()
+		if err != nil || !f.Valid {
+			return ""
+		}
+		if f.Float64 == float64(int64(f.Float64)) {
+			return fmt.Sprintf("%.0f", f.Float64)
+		}
+		return fmt.Sprintf("%v", f.Float64)
+	case string:
+		return val
+	default:
+		return fmt.Sprintf("%v", v)
+	}
 }

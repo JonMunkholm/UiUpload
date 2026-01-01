@@ -494,3 +494,36 @@ func (s *Server) handleCheckDuplicates(w http.ResponseWriter, r *http.Request) {
 		"count":    len(existing),
 	})
 }
+
+// handleDeleteRows deletes multiple rows by their unique key values.
+func (s *Server) handleDeleteRows(w http.ResponseWriter, r *http.Request) {
+	tableKey := chi.URLParam(r, "tableKey")
+	if tableKey == "" {
+		writeError(w, http.StatusBadRequest, "missing table key")
+		return
+	}
+
+	// Parse request body
+	var req struct {
+		Keys []string `json:"keys"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if len(req.Keys) == 0 {
+		writeError(w, http.StatusBadRequest, "no rows specified")
+		return
+	}
+
+	// Delete rows
+	deleted, err := s.service.DeleteRows(r.Context(), tableKey, req.Keys)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int{"deleted": deleted})
+}
