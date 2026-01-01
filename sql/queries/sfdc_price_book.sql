@@ -10,3 +10,6 @@ VALUES ($1, $2, $3, $4, $5);
 
 -- name: ResetSfdcPriceBook :exec
 DELETE FROM sfdc_price_book;
+
+-- name: CountSfdcPriceBook :one
+SELECT COUNT(*) FROM sfdc_price_book;

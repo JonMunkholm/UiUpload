@@ -36,9 +36,14 @@ type AnrokTransaction struct {
 }
 
 type CsvUpload struct {
-	Name       string           `json:"name"`
-	Action     string           `json:"action"`
-	UploadedAt pgtype.Timestamp `json:"uploaded_at"`
+	Name         string           `json:"name"`
+	Action       string           `json:"action"`
+	UploadedAt   pgtype.Timestamp `json:"uploaded_at"`
+	ID           pgtype.UUID      `json:"id"`
+	FileName     pgtype.Text      `json:"file_name"`
+	RowsInserted pgtype.Int4      `json:"rows_inserted"`
+	RowsSkipped  pgtype.Int4      `json:"rows_skipped"`
+	DurationMs   pgtype.Int4      `json:"duration_ms"`
 }
 
 type NsCustomer struct {

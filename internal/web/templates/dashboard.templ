@@ -2,13 +2,22 @@ package templates
 
 import (
 	"fmt"
+	"time"
+
 	"github.com/JonMunkholm/TUI/internal/core"
 )
+
+// TableCardData combines table info with runtime stats.
+type TableCardData struct {
+	Info       core.TableInfo
+	RowCount   int64
+	LastUpload *time.Time
+}
 
 // TableGroup represents a group of tables for display.
 type TableGroup struct {
 	Name   string
-	Tables []core.TableInfo
+	Tables []TableCardData
 }
 
 templ Dashboard(groups []TableGroup) {
@@ -38,33 +47,33 @@ templ TableGroupSection(group TableGroup) {
 			<span class="text-sm text-gray-500">({ fmt.Sprintf("%d", len(group.Tables)) } tables)</span>
 		</div>
 		<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-			for _, table := range group.Tables {
-				@TableCard(table)
+			for _, tableData := range group.Tables {
+				@TableCard(tableData)
 			}
 		</div>
 	</section>
 }
 
-templ TableCard(table core.TableInfo) {
+templ TableCard(data TableCardData) {
 	<div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4 hover:shadow-md transition-shadow">
 		<div class="flex items-center gap-2 mb-3">
-			<h3 class="font-medium text-gray-900">{ table.Label }</h3>
+			<h3 class="font-medium text-gray-900">{ data.Info.Label }</h3>
 			<!-- Info icon with column tooltip - keyboard accessible -->
 			<div class="tooltip-container group">
 				<button
 					type="button"
 					class="p-1 -m-1 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
-					aria-label={ "View expected columns for " + table.Label }
-					aria-describedby={ "tooltip-" + table.Key }
+					aria-label={ "View expected columns for " + data.Info.Label }
+					aria-describedby={ "tooltip-" + data.Info.Key }
 				>
 					<svg class="w-4 h-4 text-gray-400 group-hover:text-blue-500 group-focus-within:text-blue-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
 					</svg>
 				</button>
-				<div class="tooltip" role="tooltip" id={ "tooltip-" + table.Key }>
+				<div class="tooltip" role="tooltip" id={ "tooltip-" + data.Info.Key }>
 					<div class="text-xs font-medium text-gray-300 mb-2">Expected columns:</div>
-					if len(table.Columns) > 0 {
-						for _, col := range table.Columns {
+					if len(data.Info.Columns) > 0 {
+						for _, col := range data.Info.Columns {
 							<div class="text-xs text-white py-0.5">{ col }</div>
 						}
 					} else {
@@ -72,22 +81,33 @@ templ TableCard(table core.TableInfo) {
 					}
 				</div>
 			</div>
-			<span class="ml-auto text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">{ table.Group }</span>
+			<!-- Row count badge -->
+			<span class="text-xs font-medium text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
+				{ fmt.Sprintf("%d rows", data.RowCount) }
+			</span>
+			<span class="ml-auto text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">{ data.Info.Group }</span>
 		</div>
+
+		<!-- Last updated timestamp -->
+		if data.LastUpload != nil {
+			<div class="text-xs text-gray-500 mb-3">
+				Updated { formatTimeAgo(*data.LastUpload) }
+			</div>
+		}
 
 		<!-- Upload form - must be a form for HTMX to serialize file inputs -->
 		<form
-			id={ "upload-form-" + table.Key }
+			id={ "upload-form-" + data.Info.Key }
 			class="upload-zone mb-3"
-			hx-post={ "/api/upload/" + table.Key }
+			hx-post={ "/api/upload/" + data.Info.Key }
 			hx-encoding="multipart/form-data"
 			hx-trigger="change from:find input[type=file]"
 			hx-swap="none"
 			hx-on::before-request="showUploadModal()"
 			hx-on::after-request="handleUploadResponse(event)"
 		>
-			<input type="file" name="file" accept=".csv" class="hidden" id={ "file-" + table.Key }/>
-			<label for={ "file-" + table.Key } class="cursor-pointer block">
+			<input type="file" name="file" accept=".csv" class="hidden" id={ "file-" + data.Info.Key }/>
+			<label for={ "file-" + data.Info.Key } class="cursor-pointer block">
 				<div class="flex flex-col items-center py-4">
 					<svg class="w-8 h-8 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
@@ -98,10 +118,17 @@ templ TableCard(table core.TableInfo) {
 		</form>
 
 		<!-- Actions -->
-		<div class="flex justify-end">
+		<div class="flex justify-between items-center">
+			<a
+				href={ templ.SafeURL("/api/template/" + data.Info.Key) }
+				download
+				class="text-xs text-blue-600 hover:text-blue-700 hover:underline font-medium px-2 py-1 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+			>
+				Download Template
+			</a>
 			<button
-				hx-post={ "/api/reset/" + table.Key }
-				hx-confirm={ "Reset " + table.Label + "? This cannot be undone." }
+				hx-post={ "/api/reset/" + data.Info.Key }
+				hx-confirm={ "Reset " + data.Info.Label + "? This cannot be undone." }
 				hx-swap="none"
 				hx-on::after-request="showToast('Table reset successfully')"
 				class="text-xs text-red-600 hover:text-red-700 hover:underline font-medium px-2 py-1 rounded focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1"
@@ -109,5 +136,80 @@ templ TableCard(table core.TableInfo) {
 				Reset
 			</button>
 		</div>
+
+		<!-- Upload history (lazy-loaded) -->
+		<details class="mt-3 pt-3 border-t border-gray-100">
+			<summary class="cursor-pointer text-xs font-medium text-gray-600 hover:text-gray-800 select-none">
+				History
+			</summary>
+			<div
+				hx-get={ "/api/history/" + data.Info.Key }
+				hx-trigger="toggle from:parent once"
+				hx-swap="innerHTML"
+			>
+				<span class="text-xs text-gray-400">Loading...</span>
+			</div>
+		</details>
 	</div>
+}
+
+// formatTimeAgo returns a human-readable relative time string.
+func formatTimeAgo(t time.Time) string {
+	now := time.Now()
+	diff := now.Sub(t)
+
+	switch {
+	case diff < time.Minute:
+		return "just now"
+	case diff < time.Hour:
+		mins := int(diff.Minutes())
+		if mins == 1 {
+			return "1 minute ago"
+		}
+		return fmt.Sprintf("%d minutes ago", mins)
+	case diff < 24*time.Hour:
+		hours := int(diff.Hours())
+		if hours == 1 {
+			return "1 hour ago"
+		}
+		return fmt.Sprintf("%d hours ago", hours)
+	case diff < 7*24*time.Hour:
+		days := int(diff.Hours() / 24)
+		if days == 1 {
+			return "yesterday"
+		}
+		return fmt.Sprintf("%d days ago", days)
+	default:
+		return t.Format("Jan 2, 2006")
+	}
+}
+
+templ UploadHistory(entries []core.UploadHistoryEntry) {
+	if len(entries) == 0 {
+		<div class="text-xs text-gray-400 italic py-2">No uploads yet</div>
+	} else {
+		<div class="space-y-2 py-2">
+			for _, entry := range entries {
+				<div class="text-xs border-l-2 border-gray-200 pl-2">
+					<div class="flex justify-between text-gray-700">
+						if entry.FileName != "" {
+							<span class="font-medium truncate max-w-[150px]" title={ entry.FileName }>{ entry.FileName }</span>
+						} else {
+							<span class="font-medium text-gray-400 italic">Unknown file</span>
+						}
+						<span class="text-gray-500 whitespace-nowrap ml-2">{ formatTimeAgo(entry.UploadedAt) }</span>
+					</div>
+					<div class="text-gray-500">
+						<span class="text-green-600">{ fmt.Sprintf("%d inserted", entry.RowsInserted) }</span>
+						if entry.RowsSkipped > 0 {
+							<span class="text-amber-600 ml-1">{ fmt.Sprintf(", %d skipped", entry.RowsSkipped) }</span>
+						}
+						if entry.DurationMs > 0 {
+							<span class="text-gray-400 ml-1">({ fmt.Sprintf("%dms", entry.DurationMs) })</span>
+						}
+					</div>
+				</div>
+			}
+		</div>
+	}
 }

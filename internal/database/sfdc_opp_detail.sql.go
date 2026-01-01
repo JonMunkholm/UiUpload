@@ -11,6 +11,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countSfdcOppDetail = `-- name: CountSfdcOppDetail :one
+SELECT COUNT(*) FROM sfdc_opp_detail
+`
+
+func (q *Queries) CountSfdcOppDetail(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countSfdcOppDetail)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const insertSfdcOppDetail = `-- name: InsertSfdcOppDetail :exec
 INSERT INTO sfdc_opp_detail (
     opportunity_id,

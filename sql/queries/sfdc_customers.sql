@@ -9,3 +9,6 @@ VALUES ($1, $2, $3, $4);
 
 -- name: ResetSfdcCustomers :exec
 DELETE FROM sfdc_customers;
+
+-- name: CountSfdcCustomers :one
+SELECT COUNT(*) FROM sfdc_customers;

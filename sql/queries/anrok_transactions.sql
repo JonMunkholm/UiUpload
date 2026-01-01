@@ -28,3 +28,6 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $
 
 -- name: ResetAnrokTransactions :exec
 DELETE FROM anrok_transactions;
+
+-- name: CountAnrokTransactions :one
+SELECT COUNT(*) FROM anrok_transactions;

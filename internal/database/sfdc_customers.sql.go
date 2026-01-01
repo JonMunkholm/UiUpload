@@ -11,6 +11,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countSfdcCustomers = `-- name: CountSfdcCustomers :one
+SELECT COUNT(*) FROM sfdc_customers
+`
+
+func (q *Queries) CountSfdcCustomers(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countSfdcCustomers)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const insertSfdcCustomer = `-- name: InsertSfdcCustomer :exec
 INSERT INTO sfdc_customers (
     account_id_casesafe,

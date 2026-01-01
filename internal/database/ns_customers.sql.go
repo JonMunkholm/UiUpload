@@ -11,6 +11,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countNsCustomers = `-- name: CountNsCustomers :one
+SELECT COUNT(*) FROM ns_customers
+`
+
+func (q *Queries) CountNsCustomers(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countNsCustomers)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const insertNsCustomer = `-- name: InsertNsCustomer :exec
 INSERT INTO ns_customers (
     salesforce_id_io,

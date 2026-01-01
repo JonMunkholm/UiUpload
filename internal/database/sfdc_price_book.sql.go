@@ -11,6 +11,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countSfdcPriceBook = `-- name: CountSfdcPriceBook :one
+SELECT COUNT(*) FROM sfdc_price_book
+`
+
+func (q *Queries) CountSfdcPriceBook(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countSfdcPriceBook)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const insertSfdcPriceBook = `-- name: InsertSfdcPriceBook :exec
 INSERT INTO sfdc_price_book (
     price_book_name,

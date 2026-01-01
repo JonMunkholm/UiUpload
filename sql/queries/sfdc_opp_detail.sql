@@ -31,3 +31,6 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $
 
 -- name: ResetSfdcOppDetail :exec
 DELETE FROM sfdc_opp_detail;
+
+-- name: CountSfdcOppDetail :one
+SELECT COUNT(*) FROM sfdc_opp_detail;

@@ -7,10 +7,12 @@ package db
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const getCsvUpload = `-- name: GetCsvUpload :many
-SELECT name, action, uploaded_at
+SELECT name, action, uploaded_at, id, file_name, rows_inserted, rows_skipped, duration_ms
 FROM csv_uploads
 WHERE name = $1
 `
@@ -24,7 +26,99 @@ func (q *Queries) GetCsvUpload(ctx context.Context, name string) ([]CsvUpload, e
 	items := []CsvUpload{}
 	for rows.Next() {
 		var i CsvUpload
-		if err := rows.Scan(&i.Name, &i.Action, &i.UploadedAt); err != nil {
+		if err := rows.Scan(
+			&i.Name,
+			&i.Action,
+			&i.UploadedAt,
+			&i.ID,
+			&i.FileName,
+			&i.RowsInserted,
+			&i.RowsSkipped,
+			&i.DurationMs,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getLastUpload = `-- name: GetLastUpload :one
+SELECT id, name, action, file_name, rows_inserted, rows_skipped, duration_ms, uploaded_at
+FROM csv_uploads
+WHERE name = $1
+ORDER BY uploaded_at DESC
+LIMIT 1
+`
+
+type GetLastUploadRow struct {
+	ID           pgtype.UUID      `json:"id"`
+	Name         string           `json:"name"`
+	Action       string           `json:"action"`
+	FileName     pgtype.Text      `json:"file_name"`
+	RowsInserted pgtype.Int4      `json:"rows_inserted"`
+	RowsSkipped  pgtype.Int4      `json:"rows_skipped"`
+	DurationMs   pgtype.Int4      `json:"duration_ms"`
+	UploadedAt   pgtype.Timestamp `json:"uploaded_at"`
+}
+
+func (q *Queries) GetLastUpload(ctx context.Context, name string) (GetLastUploadRow, error) {
+	row := q.db.QueryRow(ctx, getLastUpload, name)
+	var i GetLastUploadRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Action,
+		&i.FileName,
+		&i.RowsInserted,
+		&i.RowsSkipped,
+		&i.DurationMs,
+		&i.UploadedAt,
+	)
+	return i, err
+}
+
+const getUploadHistory = `-- name: GetUploadHistory :many
+SELECT id, name, action, file_name, rows_inserted, rows_skipped, duration_ms, uploaded_at
+FROM csv_uploads
+WHERE name = $1
+ORDER BY uploaded_at DESC
+LIMIT 5
+`
+
+type GetUploadHistoryRow struct {
+	ID           pgtype.UUID      `json:"id"`
+	Name         string           `json:"name"`
+	Action       string           `json:"action"`
+	FileName     pgtype.Text      `json:"file_name"`
+	RowsInserted pgtype.Int4      `json:"rows_inserted"`
+	RowsSkipped  pgtype.Int4      `json:"rows_skipped"`
+	DurationMs   pgtype.Int4      `json:"duration_ms"`
+	UploadedAt   pgtype.Timestamp `json:"uploaded_at"`
+}
+
+func (q *Queries) GetUploadHistory(ctx context.Context, name string) ([]GetUploadHistoryRow, error) {
+	rows, err := q.db.Query(ctx, getUploadHistory, name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetUploadHistoryRow{}
+	for rows.Next() {
+		var i GetUploadHistoryRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Action,
+			&i.FileName,
+			&i.RowsInserted,
+			&i.RowsSkipped,
+			&i.DurationMs,
+			&i.UploadedAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -36,18 +130,28 @@ func (q *Queries) GetCsvUpload(ctx context.Context, name string) ([]CsvUpload, e
 }
 
 const insertCsvUpload = `-- name: InsertCsvUpload :exec
-INSERT INTO csv_uploads (name, action, uploaded_at)
-VALUES ($1, $2, NOW())
-ON CONFLICT (name, action) DO NOTHING
+INSERT INTO csv_uploads (name, action, file_name, rows_inserted, rows_skipped, duration_ms, uploaded_at)
+VALUES ($1, $2, $3, $4, $5, $6, NOW())
 `
 
 type InsertCsvUploadParams struct {
-	Name   string `json:"name"`
-	Action string `json:"action"`
+	Name         string      `json:"name"`
+	Action       string      `json:"action"`
+	FileName     pgtype.Text `json:"file_name"`
+	RowsInserted pgtype.Int4 `json:"rows_inserted"`
+	RowsSkipped  pgtype.Int4 `json:"rows_skipped"`
+	DurationMs   pgtype.Int4 `json:"duration_ms"`
 }
 
 func (q *Queries) InsertCsvUpload(ctx context.Context, arg InsertCsvUploadParams) error {
-	_, err := q.db.Exec(ctx, insertCsvUpload, arg.Name, arg.Action)
+	_, err := q.db.Exec(ctx, insertCsvUpload,
+		arg.Name,
+		arg.Action,
+		arg.FileName,
+		arg.RowsInserted,
+		arg.RowsSkipped,
+		arg.DurationMs,
+	)
 	return err
 }
 

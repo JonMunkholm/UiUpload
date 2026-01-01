@@ -58,6 +58,11 @@ func (s *Service) processUpload(ctx context.Context, upload *activeUpload, def T
 	// Process the records
 	result := s.processRecords(ctx, upload, def, records, upload.FileName, startTime)
 	upload.Result = result
+
+	// Record upload history for successful uploads
+	if result.Error == "" {
+		s.recordUpload(ctx, upload.TableKey, upload.FileName, result.Inserted, result.Skipped, result.Duration)
+	}
 }
 
 // processUploadDir handles upload from directory (for compatibility).
@@ -171,10 +176,7 @@ func (s *Service) processUploadDir(ctx context.Context, upload *activeUpload, de
 
 		// Record successful upload
 		if result.Error == "" {
-			_ = db.New(s.pool).InsertCsvUpload(ctx, db.InsertCsvUploadParams{
-				Name:   filePath,
-				Action: "upload",
-			})
+			s.recordUpload(ctx, upload.TableKey, fileName, result.Inserted, result.Skipped, result.Duration)
 
 			// Move to Uploaded directory
 			uploadedDir := filepath.Join(dir, "Uploaded")
@@ -477,4 +479,26 @@ func isEmptyRow(row []string) bool {
 		}
 	}
 	return true
+}
+
+// recordUpload records an upload to the csv_uploads table.
+func (s *Service) recordUpload(ctx context.Context, tableKey, fileName string, inserted, skipped int, duration time.Duration) {
+	params := db.InsertCsvUploadParams{
+		Name:   tableKey,
+		Action: "upload",
+	}
+
+	// Set nullable fields
+	if fileName != "" {
+		params.FileName.String = fileName
+		params.FileName.Valid = true
+	}
+	params.RowsInserted.Int32 = int32(inserted)
+	params.RowsInserted.Valid = true
+	params.RowsSkipped.Int32 = int32(skipped)
+	params.RowsSkipped.Valid = true
+	params.DurationMs.Int32 = int32(duration.Milliseconds())
+	params.DurationMs.Valid = true
+
+	_ = db.New(s.pool).InsertCsvUpload(ctx, params)
 }

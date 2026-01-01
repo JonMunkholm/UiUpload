@@ -11,6 +11,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countAnrokTransactions = `-- name: CountAnrokTransactions :one
+SELECT COUNT(*) FROM anrok_transactions
+`
+
+func (q *Queries) CountAnrokTransactions(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countAnrokTransactions)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const insertAnrokTransaction = `-- name: InsertAnrokTransaction :exec
 INSERT INTO anrok_transactions (
     transaction_id,

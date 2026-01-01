@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	db "github.com/JonMunkholm/TUI/internal/database"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -277,4 +278,116 @@ func (s *Service) cleanup(uploadID string, delay time.Duration) {
 		delete(s.uploads, uploadID)
 		s.mu.Unlock()
 	})
+}
+
+// TableStats contains statistics for a single table.
+type TableStats struct {
+	RowCount   int64
+	LastUpload *LastUploadInfo
+}
+
+// LastUploadInfo contains information about the last upload.
+type LastUploadInfo struct {
+	FileName     string
+	RowsInserted int32
+	RowsSkipped  int32
+	UploadedAt   time.Time
+}
+
+// GetTableRowCount returns the row count for a specific table.
+func (s *Service) GetTableRowCount(ctx context.Context, tableKey string) (int64, error) {
+	return countTable(ctx, s.pool, tableKey)
+}
+
+// GetTableStats returns row count and last upload info for a table.
+func (s *Service) GetTableStats(ctx context.Context, tableKey string) (*TableStats, error) {
+	count, err := countTable(ctx, s.pool, tableKey)
+	if err != nil {
+		return nil, err
+	}
+
+	stats := &TableStats{
+		RowCount: count,
+	}
+
+	// Get last upload info
+	lastUpload, err := s.GetLastUpload(ctx, tableKey)
+	if err == nil && lastUpload != nil {
+		stats.LastUpload = lastUpload
+	}
+
+	return stats, nil
+}
+
+// GetLastUpload returns info about the last upload for a table.
+func (s *Service) GetLastUpload(ctx context.Context, tableKey string) (*LastUploadInfo, error) {
+	row, err := db.New(s.pool).GetLastUpload(ctx, tableKey)
+	if err != nil {
+		return nil, err
+	}
+
+	if !row.UploadedAt.Valid {
+		return nil, nil
+	}
+
+	return &LastUploadInfo{
+		FileName:     row.FileName.String,
+		RowsInserted: row.RowsInserted.Int32,
+		RowsSkipped:  row.RowsSkipped.Int32,
+		UploadedAt:   row.UploadedAt.Time,
+	}, nil
+}
+
+// UploadHistoryEntry represents a single upload history entry.
+type UploadHistoryEntry struct {
+	FileName     string
+	RowsInserted int32
+	RowsSkipped  int32
+	DurationMs   int32
+	UploadedAt   time.Time
+}
+
+// GetUploadHistory returns the upload history for a table.
+func (s *Service) GetUploadHistory(ctx context.Context, tableKey string) ([]UploadHistoryEntry, error) {
+	rows, err := db.New(s.pool).GetUploadHistory(ctx, tableKey)
+	if err != nil {
+		return nil, err
+	}
+
+	entries := make([]UploadHistoryEntry, 0, len(rows))
+	for _, row := range rows {
+		entries = append(entries, UploadHistoryEntry{
+			FileName:     row.FileName.String,
+			RowsInserted: row.RowsInserted.Int32,
+			RowsSkipped:  row.RowsSkipped.Int32,
+			DurationMs:   row.DurationMs.Int32,
+			UploadedAt:   row.UploadedAt.Time,
+		})
+	}
+
+	return entries, nil
+}
+
+// countTable returns the row count for a specific table.
+func countTable(ctx context.Context, pool *pgxpool.Pool, tableKey string) (int64, error) {
+	q := db.New(pool)
+
+	switch tableKey {
+	case "sfdc_customers":
+		return q.CountSfdcCustomers(ctx)
+	case "sfdc_price_book":
+		return q.CountSfdcPriceBook(ctx)
+	case "sfdc_opp_detail":
+		return q.CountSfdcOppDetail(ctx)
+	case "ns_customers":
+		return q.CountNsCustomers(ctx)
+	case "ns_invoice_detail":
+		return q.CountNsInvoiceDetail(ctx)
+	case "ns_so_detail":
+		return q.CountNsSoDetail(ctx)
+	case "anrok_transactions":
+		return q.CountAnrokTransactions(ctx)
+	default:
+		return 0, fmt.Errorf("unknown table: %s", tableKey)
+	}
 }

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,21 +17,35 @@ const MaxUploadSize = 100 * 1024 * 1024
 
 // handleDashboard renders the main dashboard page.
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	// Build table groups from registry
+	ctx := r.Context()
+
+	// Build table groups from registry with stats
 	var groups []templates.TableGroup
 	for _, groupName := range core.Groups() {
 		tables := core.ByGroup(groupName)
-		infos := make([]core.TableInfo, len(tables))
+		tableData := make([]templates.TableCardData, len(tables))
 		for i, def := range tables {
-			infos[i] = def.Info
+			data := templates.TableCardData{
+				Info: def.Info,
+			}
+
+			// Fetch stats (don't fail if we can't get them)
+			if stats, err := s.service.GetTableStats(ctx, def.Info.Key); err == nil {
+				data.RowCount = stats.RowCount
+				if stats.LastUpload != nil {
+					data.LastUpload = &stats.LastUpload.UploadedAt
+				}
+			}
+
+			tableData[i] = data
 		}
 		groups = append(groups, templates.TableGroup{
 			Name:   groupName,
-			Tables: infos,
+			Tables: tableData,
 		})
 	}
 
-	templates.Dashboard(groups).Render(r.Context(), w)
+	templates.Dashboard(groups).Render(ctx, w)
 }
 
 // handleListTables returns all tables organized by group.
@@ -197,6 +212,47 @@ func (s *Server) handleResetAll(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"reset_all"}`))
+}
+
+// handleUploadHistory returns the upload history for a table as HTML.
+func (s *Server) handleUploadHistory(w http.ResponseWriter, r *http.Request) {
+	tableKey := chi.URLParam(r, "tableKey")
+	if tableKey == "" {
+		writeError(w, http.StatusBadRequest, "missing table key")
+		return
+	}
+
+	history, err := s.service.GetUploadHistory(r.Context(), tableKey)
+	if err != nil {
+		// Return empty history on error
+		history = nil
+	}
+
+	templates.UploadHistory(history).Render(r.Context(), w)
+}
+
+// handleDownloadTemplate returns a CSV template with headers for a table.
+func (s *Server) handleDownloadTemplate(w http.ResponseWriter, r *http.Request) {
+	tableKey := chi.URLParam(r, "tableKey")
+	if tableKey == "" {
+		writeError(w, http.StatusBadRequest, "missing table key")
+		return
+	}
+
+	def, ok := core.Get(tableKey)
+	if !ok {
+		writeError(w, http.StatusNotFound, "table not found")
+		return
+	}
+
+	// Set headers for CSV download
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s_template.csv"`, tableKey))
+
+	// Write CSV with just headers
+	csvWriter := csv.NewWriter(w)
+	csvWriter.Write(def.Info.Columns)
+	csvWriter.Flush()
 }
 
 // UploadResultResponse wraps the upload result for JSON encoding.

@@ -63,6 +63,12 @@ func (s *Server) setupRoutes() {
 		// Table listing
 		r.Get("/tables", s.handleListTables)
 
+		// Template download
+		r.Get("/template/{tableKey}", s.handleDownloadTemplate)
+
+		// Upload history
+		r.Get("/history/{tableKey}", s.handleUploadHistory)
+
 		// Upload operations
 		r.Post("/upload/{tableKey}", s.handleUpload)
 		r.Get("/upload/{uploadID}/progress", s.handleUploadProgress)

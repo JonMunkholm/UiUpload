@@ -14,3 +14,6 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
 
 -- name: ResetNsCustomers :exec
 DELETE FROM ns_customers;
+
+-- name: CountNsCustomers :one
+SELECT COUNT(*) FROM ns_customers;
