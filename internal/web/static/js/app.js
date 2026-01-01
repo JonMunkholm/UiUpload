@@ -446,6 +446,217 @@ document.body.addEventListener('htmx:configRequest', function(e) {
 });
 
 // ============================================================================
+// Saved Views Feature
+// ============================================================================
+
+// Get localStorage key for a table's saved views
+function getViewsStorageKey(tableKey) {
+    return 'views_' + tableKey;
+}
+
+// Get all saved views for a table
+function getSavedViews(tableKey) {
+    const stored = localStorage.getItem(getViewsStorageKey(tableKey));
+    if (stored) {
+        try {
+            return JSON.parse(stored);
+        } catch (e) {
+            return [];
+        }
+    }
+    return [];
+}
+
+// Save views array to localStorage
+function saveViews(tableKey, views) {
+    localStorage.setItem(getViewsStorageKey(tableKey), JSON.stringify(views));
+}
+
+// Capture current view state from URL and localStorage
+function captureCurrentView() {
+    const url = new URL(window.location.href);
+    const tableKey = getTableKey();
+    if (!tableKey) return null;
+
+    // Extract filters from URL
+    const filters = {};
+    url.searchParams.forEach((value, key) => {
+        if (key.startsWith('filter[') && key.endsWith(']')) {
+            const col = key.slice(7, -1);
+            filters[col] = value;
+        }
+    });
+
+    // Extract sort
+    const sort = {
+        column: url.searchParams.get('sort') || '',
+        dir: url.searchParams.get('dir') || 'asc'
+    };
+
+    // Extract search
+    const search = url.searchParams.get('search') || '';
+
+    // Get visible columns from localStorage
+    const allColumns = getAllColumns();
+    const columns = getVisibleColumns(tableKey, allColumns);
+
+    return { filters, sort, search, columns };
+}
+
+// Add a new view
+function addView(name) {
+    const tableKey = getTableKey();
+    if (!tableKey) return;
+
+    const views = getSavedViews(tableKey);
+    const state = captureCurrentView();
+    if (!state) return;
+
+    views.push({
+        id: 'v_' + Date.now(),
+        name: name,
+        ...state
+    });
+
+    saveViews(tableKey, views);
+    renderViewsDropdown();
+}
+
+// Delete a view by ID
+function deleteView(viewId) {
+    const tableKey = getTableKey();
+    if (!tableKey) return;
+
+    const views = getSavedViews(tableKey).filter(v => v.id !== viewId);
+    saveViews(tableKey, views);
+    renderViewsDropdown();
+}
+
+// Apply a saved view
+function applyView(viewId) {
+    const tableKey = getTableKey();
+    if (!tableKey) return;
+
+    const views = getSavedViews(tableKey);
+    const view = views.find(v => v.id === viewId);
+    if (!view) return;
+
+    // Build URL with filters, sort, search
+    const url = new URL(window.location.origin + '/table/' + tableKey);
+    url.searchParams.set('page', '1');
+
+    if (view.sort && view.sort.column) {
+        url.searchParams.set('sort', view.sort.column);
+        url.searchParams.set('dir', view.sort.dir || 'asc');
+    }
+
+    if (view.search) {
+        url.searchParams.set('search', view.search);
+    }
+
+    if (view.filters) {
+        for (const [col, opVal] of Object.entries(view.filters)) {
+            url.searchParams.append('filter[' + col + ']', opVal);
+        }
+    }
+
+    // Apply column visibility
+    if (view.columns && view.columns.length > 0) {
+        saveVisibleColumns(tableKey, view.columns);
+    }
+
+    // Navigate via HTMX
+    htmx.ajax('GET', url.pathname + url.search, {
+        target: '#table-container',
+        swap: 'innerHTML',
+        pushUrl: true
+    });
+
+    closeViewsDropdown();
+}
+
+// Render the views dropdown content
+function renderViewsDropdown() {
+    const dropdown = document.getElementById('views-dropdown');
+    if (!dropdown) return;
+
+    const tableKey = getTableKey();
+    if (!tableKey) return;
+
+    const views = getSavedViews(tableKey);
+
+    let html = `
+        <button type="button" onclick="showSaveViewDialog()"
+                class="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-gray-50 flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
+            </svg>
+            Save current view
+        </button>
+    `;
+
+    if (views.length > 0) {
+        html += '<div class="border-t border-gray-200 my-1"></div>';
+
+        views.forEach(view => {
+            html += `
+                <div class="group flex items-center justify-between px-3 py-2 hover:bg-gray-50">
+                    <button type="button" onclick="applyView('${escapeHtml(view.id)}')"
+                            class="flex-1 text-left text-sm text-gray-700 truncate" title="${escapeHtml(view.name)}">
+                        ${escapeHtml(view.name)}
+                    </button>
+                    <button type="button" onclick="event.stopPropagation(); deleteView('${escapeHtml(view.id)}')"
+                            class="hidden group-hover:block p-1 text-gray-400 hover:text-red-600 flex-shrink-0"
+                            title="Delete view">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+            `;
+        });
+    }
+
+    dropdown.innerHTML = html;
+}
+
+// Toggle views dropdown visibility
+function toggleViewsDropdown() {
+    const dropdown = document.getElementById('views-dropdown');
+    if (dropdown) {
+        const wasHidden = dropdown.classList.contains('hidden');
+        dropdown.classList.toggle('hidden');
+        if (wasHidden) {
+            renderViewsDropdown();
+        }
+    }
+}
+
+// Close views dropdown
+function closeViewsDropdown() {
+    const dropdown = document.getElementById('views-dropdown');
+    if (dropdown) dropdown.classList.add('hidden');
+}
+
+// Show save view dialog (simple prompt for now)
+function showSaveViewDialog() {
+    const name = prompt('Enter view name:');
+    if (name && name.trim()) {
+        addView(name.trim());
+        showToast('View saved');
+    }
+}
+
+// Initialize views dropdown (close on outside click)
+function initViewsDropdown() {
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('#views-container')) {
+            closeViewsDropdown();
+        }
+    });
+}
+
+// ============================================================================
 // Keyboard Shortcuts
 // ============================================================================
 
@@ -471,11 +682,15 @@ function initKeyboardShortcuts() {
                 cancelEdit();
                 cancelPreview();
                 closeColumnDropdown();
+                closeViewsDropdown();
                 hideDeleteModal();
                 hideKeyboardHelp();
                 break;
             case 'c':
                 toggleColumnDropdown();
+                break;
+            case 'v':
+                toggleViewsDropdown();
                 break;
             case 'e':
                 triggerExport();
@@ -549,6 +764,7 @@ function showShortcutsHelp() {
                 <div class="text-gray-600 space-y-0.5">
                     <div><kbd class="px-1 py-0.5 bg-gray-100 rounded text-xs">/</kbd> Focus search</div>
                     <div><kbd class="px-1 py-0.5 bg-gray-100 rounded text-xs">c</kbd> Toggle columns</div>
+                    <div><kbd class="px-1 py-0.5 bg-gray-100 rounded text-xs">v</kbd> Saved views</div>
                     <div><kbd class="px-1 py-0.5 bg-gray-100 rounded text-xs">e</kbd> Export CSV</div>
                     <div><kbd class="px-1 py-0.5 bg-gray-100 rounded text-xs">?</kbd> Show this help</div>
                 </div>
