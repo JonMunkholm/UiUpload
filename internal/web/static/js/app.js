@@ -469,6 +469,7 @@ function initKeyboardShortcuts() {
                 break;
             case 'Escape':
                 hideRowModal();
+                cancelPreview();
                 closeColumnDropdown();
                 break;
             case 'c':
@@ -572,5 +573,143 @@ document.addEventListener('click', function(e) {
     const modal = document.getElementById('row-modal');
     if (modal && e.target === modal) {
         hideRowModal();
+    }
+});
+
+// ============================================================================
+// CSV Preview
+// ============================================================================
+
+let currentPreviewForm = null;
+
+function showPreview(input) {
+    if (!input.files || !input.files[0]) return;
+
+    const file = input.files[0];
+    const form = input.closest('form');
+    const expectedColumns = JSON.parse(form.dataset.columns || '[]');
+    const tableLabel = form.dataset.tableLabel || 'Table';
+
+    currentPreviewForm = form;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const text = e.target.result;
+        const { headers, rows, totalRows } = parseCSV(text);
+        renderPreview(tableLabel, expectedColumns, headers, rows, totalRows, file.name);
+    };
+    reader.readAsText(file);
+}
+
+function parseCSV(text) {
+    const lines = text.trim().split('\n');
+    if (lines.length === 0) return { headers: [], rows: [], totalRows: 0 };
+
+    const headers = parseCSVLine(lines[0]);
+    const rows = [];
+    const previewCount = Math.min(5, lines.length - 1);
+
+    for (let i = 1; i <= previewCount; i++) {
+        if (lines[i]) rows.push(parseCSVLine(lines[i]));
+    }
+
+    return { headers, rows, totalRows: lines.length - 1 };
+}
+
+function parseCSVLine(line) {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        if (char === '"') {
+            inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+            result.push(current.trim());
+            current = '';
+        } else {
+            current += char;
+        }
+    }
+    result.push(current.trim());
+    return result;
+}
+
+function renderPreview(tableLabel, expected, actual, rows, totalRows, fileName) {
+    const columnsMatch = expected.length === actual.length &&
+        expected.every((col, i) => col === actual[i]);
+
+    let html = `
+        <div class="mb-4">
+            <div class="text-sm text-gray-600">File: <span class="font-medium">${escapeHtml(fileName)}</span></div>
+            <div class="text-sm text-gray-600">Table: <span class="font-medium">${escapeHtml(tableLabel)}</span></div>
+            <div class="text-sm text-gray-600">Rows: <span class="font-medium">${totalRows}</span></div>
+        </div>
+
+        <div class="mb-4 p-3 rounded-lg ${columnsMatch ? 'bg-green-50 border border-green-200' : 'bg-yellow-50 border border-yellow-200'}">
+            <div class="flex items-center gap-2 mb-2">
+                ${columnsMatch
+                    ? '<svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg><span class="text-sm font-medium text-green-800">Columns match</span>'
+                    : '<svg class="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg><span class="text-sm font-medium text-yellow-800">Column mismatch</span>'
+                }
+            </div>
+            <div class="grid grid-cols-2 gap-4 text-xs">
+                <div>
+                    <div class="font-medium text-gray-600 mb-1">Expected (${expected.length})</div>
+                    ${expected.map(c => `<div class="text-gray-700">${escapeHtml(c)}</div>`).join('')}
+                </div>
+                <div>
+                    <div class="font-medium text-gray-600 mb-1">Found in CSV (${actual.length})</div>
+                    ${actual.map(c => `<div class="text-gray-700">${escapeHtml(c)}</div>`).join('')}
+                </div>
+            </div>
+        </div>
+
+        <div class="text-sm font-medium text-gray-700 mb-2">Preview (first ${rows.length} rows)</div>
+        <div class="overflow-x-auto border rounded-lg">
+            <table class="min-w-full text-xs">
+                <thead class="bg-gray-50">
+                    <tr>
+                        ${actual.map(h => `<th class="px-3 py-2 text-left font-medium text-gray-600">${escapeHtml(h)}</th>`).join('')}
+                    </tr>
+                </thead>
+                <tbody class="divide-y">
+                    ${rows.map(row => `
+                        <tr>
+                            ${row.map(cell => `<td class="px-3 py-2 text-gray-700 whitespace-nowrap">${escapeHtml(cell || '-')}</td>`).join('')}
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+
+    document.getElementById('preview-content').innerHTML = html;
+    document.getElementById('preview-modal').classList.remove('hidden');
+}
+
+function confirmUpload() {
+    if (currentPreviewForm) {
+        document.getElementById('preview-modal').classList.add('hidden');
+        htmx.trigger(currentPreviewForm, 'upload');
+        currentPreviewForm = null;
+    }
+}
+
+function cancelPreview() {
+    document.getElementById('preview-modal').classList.add('hidden');
+    if (currentPreviewForm) {
+        const input = currentPreviewForm.querySelector('input[type="file"]');
+        if (input) input.value = '';
+        currentPreviewForm = null;
+    }
+}
+
+// Close preview modal on outside click
+document.addEventListener('click', function(e) {
+    const modal = document.getElementById('preview-modal');
+    if (modal && e.target === modal) {
+        cancelPreview();
     }
 });
