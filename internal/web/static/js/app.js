@@ -444,3 +444,89 @@ document.body.addEventListener('htmx:configRequest', function(e) {
         }
     }
 });
+
+// ============================================================================
+// Keyboard Shortcuts
+// ============================================================================
+
+function initKeyboardShortcuts() {
+    document.addEventListener('keydown', function(e) {
+        // Ignore if typing in input/textarea
+        if (e.target.matches('input, textarea, select')) {
+            // But allow Esc to blur and clear
+            if (e.key === 'Escape') {
+                e.target.blur();
+                clearSearch();
+                closeColumnDropdown();
+            }
+            return;
+        }
+
+        switch (e.key) {
+            case '/':
+                e.preventDefault();
+                focusSearch();
+                break;
+            case 'Escape':
+                closeColumnDropdown();
+                break;
+            case 'c':
+                toggleColumnDropdown();
+                break;
+            case 'e':
+                triggerExport();
+                break;
+            case 'ArrowLeft':
+                goToPrevPage();
+                break;
+            case 'ArrowRight':
+                goToNextPage();
+                break;
+            case '?':
+                showShortcutsHelp();
+                break;
+        }
+    });
+}
+
+function focusSearch() {
+    const search = document.querySelector('input[name="search"]');
+    if (search) search.focus();
+}
+
+function clearSearch() {
+    const search = document.querySelector('input[name="search"]');
+    if (search && search.value) {
+        search.value = '';
+        search.dispatchEvent(new Event('search', { bubbles: true }));
+    }
+}
+
+function triggerExport() {
+    const exportLink = document.querySelector('a[href*="/api/export/"]');
+    if (exportLink) exportLink.click();
+}
+
+function goToPrevPage() {
+    const buttons = document.querySelectorAll('button[hx-get]');
+    for (const btn of buttons) {
+        if (btn.textContent.trim() === 'Previous') {
+            btn.click();
+            break;
+        }
+    }
+}
+
+function goToNextPage() {
+    const buttons = document.querySelectorAll('button[hx-get]');
+    for (const btn of buttons) {
+        if (btn.textContent.trim() === 'Next') {
+            btn.click();
+            break;
+        }
+    }
+}
+
+function showShortcutsHelp() {
+    showToast('Shortcuts: / search, Esc clear, c columns, e export, ←→ pages');
+}
