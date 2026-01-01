@@ -45,6 +45,28 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
 						</svg>
 					</div>
+					<!-- Column Toggle Dropdown -->
+					<div class="relative">
+						<button
+							type="button"
+							onclick="toggleColumnDropdown()"
+							class="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+						>
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"></path>
+							</svg>
+							Columns
+						</button>
+						<div id="column-dropdown" class="hidden absolute right-0 z-10 mt-2 w-56 bg-white border border-gray-200 rounded-md shadow-lg">
+							<div class="p-2 border-b border-gray-100 flex gap-2">
+								<button type="button" onclick="selectAllColumns()" class="text-xs text-blue-600 hover:underline">All</button>
+								<button type="button" onclick="clearAllColumns()" class="text-xs text-blue-600 hover:underline">None</button>
+							</div>
+							<div id="column-checkboxes" class="max-h-64 overflow-y-auto p-2">
+								<!-- Checkboxes rendered by JS -->
+							</div>
+						</div>
+					</div>
 					<!-- Export button -->
 					if data.TotalRows > 0 {
 						<a
@@ -62,9 +84,15 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 		</div>
 
 		<!-- Table container with id for HTMX swaps -->
-		<div id="table-container">
+		<div id="table-container" data-table-key={ tableKey }>
 			@TablePartial(tableKey, info, data)
 		</div>
+		<!-- Initialize column toggle -->
+		<script>
+			document.addEventListener('DOMContentLoaded', function() {
+				initColumnToggle();
+			});
+		</script>
 	}
 }
 

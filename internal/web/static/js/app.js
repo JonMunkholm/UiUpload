@@ -206,3 +206,179 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 });
+
+// ============================================================================
+// Column Toggle Feature
+// ============================================================================
+
+// Get localStorage key for a table's column visibility
+function getColumnStorageKey(tableKey) {
+    return 'columns_' + tableKey;
+}
+
+// Get visible columns from localStorage (default: all visible)
+function getVisibleColumns(tableKey, allColumns) {
+    const stored = localStorage.getItem(getColumnStorageKey(tableKey));
+    if (stored) {
+        try {
+            return JSON.parse(stored);
+        } catch (e) {
+            return allColumns;
+        }
+    }
+    return allColumns;
+}
+
+// Save visible columns to localStorage
+function saveVisibleColumns(tableKey, columns) {
+    localStorage.setItem(getColumnStorageKey(tableKey), JSON.stringify(columns));
+}
+
+// Get all column names from table headers
+function getAllColumns() {
+    const headers = document.querySelectorAll('table thead th');
+    return Array.from(headers).map(th => {
+        // Get text content, excluding the sort icon
+        const span = th.querySelector('span');
+        return span ? span.textContent.trim() : th.textContent.trim();
+    });
+}
+
+// Get table key from data attribute
+function getTableKey() {
+    const container = document.getElementById('table-container');
+    return container ? container.dataset.tableKey : null;
+}
+
+// Toggle dropdown visibility
+function toggleColumnDropdown() {
+    const dropdown = document.getElementById('column-dropdown');
+    if (dropdown) {
+        dropdown.classList.toggle('hidden');
+    }
+}
+
+// Initialize column toggle UI and apply saved visibility
+function initColumnToggle() {
+    const tableKey = getTableKey();
+    if (!tableKey) return;
+
+    const allColumns = getAllColumns();
+    if (allColumns.length === 0) return;
+
+    const visible = getVisibleColumns(tableKey, allColumns);
+    const container = document.getElementById('column-checkboxes');
+    if (!container) return;
+
+    // Render checkboxes
+    container.innerHTML = allColumns.map((col, i) => `
+        <label class="flex items-center gap-2 px-2 py-1 hover:bg-gray-50 rounded cursor-pointer">
+            <input type="checkbox"
+                   data-col-index="${i}"
+                   data-col-name="${col}"
+                   ${visible.includes(col) ? 'checked' : ''}
+                   onchange="handleColumnToggle(this)"
+                   class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+            <span class="text-sm text-gray-700 truncate">${col}</span>
+        </label>
+    `).join('');
+
+    // Apply initial visibility
+    applyColumnVisibility();
+}
+
+// Handle checkbox change
+function handleColumnToggle(checkbox) {
+    const tableKey = getTableKey();
+    if (!tableKey) return;
+
+    const allColumns = getAllColumns();
+    let visible = getVisibleColumns(tableKey, allColumns);
+    const colName = checkbox.dataset.colName;
+
+    if (checkbox.checked) {
+        if (!visible.includes(colName)) {
+            visible.push(colName);
+        }
+    } else {
+        visible = visible.filter(c => c !== colName);
+    }
+
+    saveVisibleColumns(tableKey, visible);
+    applyColumnVisibility();
+}
+
+// Apply column visibility based on saved state
+function applyColumnVisibility() {
+    const tableKey = getTableKey();
+    if (!tableKey) return;
+
+    const table = document.querySelector('table');
+    if (!table) return;
+
+    const allColumns = getAllColumns();
+    const visible = getVisibleColumns(tableKey, allColumns);
+
+    allColumns.forEach((col, i) => {
+        const isVisible = visible.includes(col);
+        const nth = i + 1;
+
+        // Toggle header
+        const th = table.querySelector(`thead th:nth-child(${nth})`);
+        if (th) th.style.display = isVisible ? '' : 'none';
+
+        // Toggle all cells in that column
+        table.querySelectorAll(`tbody td:nth-child(${nth})`).forEach(td => {
+            td.style.display = isVisible ? '' : 'none';
+        });
+    });
+}
+
+// Select all columns
+function selectAllColumns() {
+    const tableKey = getTableKey();
+    if (!tableKey) return;
+
+    const allColumns = getAllColumns();
+    saveVisibleColumns(tableKey, allColumns);
+
+    // Update checkboxes
+    document.querySelectorAll('#column-checkboxes input[type="checkbox"]').forEach(cb => {
+        cb.checked = true;
+    });
+
+    applyColumnVisibility();
+}
+
+// Clear all columns (hide all)
+function clearAllColumns() {
+    const tableKey = getTableKey();
+    if (!tableKey) return;
+
+    saveVisibleColumns(tableKey, []);
+
+    // Update checkboxes
+    document.querySelectorAll('#column-checkboxes input[type="checkbox"]').forEach(cb => {
+        cb.checked = false;
+    });
+
+    applyColumnVisibility();
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', function(e) {
+    const dropdown = document.getElementById('column-dropdown');
+    const button = e.target.closest('[onclick*="toggleColumnDropdown"]');
+
+    if (dropdown && !dropdown.contains(e.target) && !button) {
+        dropdown.classList.add('hidden');
+    }
+});
+
+// Re-apply visibility after HTMX swaps
+document.body.addEventListener('htmx:afterSwap', function(e) {
+    if (e.detail.target.id === 'table-container') {
+        // Re-init checkboxes and apply visibility
+        initColumnToggle();
+    }
+});
