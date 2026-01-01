@@ -1,3 +1,38 @@
+// ============================================================================
+// THEME MANAGEMENT
+// ============================================================================
+
+function getThemeStorageKey() {
+    return 'theme-mode';
+}
+
+function getSavedTheme() {
+    return localStorage.getItem(getThemeStorageKey()) || 'light';
+}
+
+function saveTheme(theme) {
+    localStorage.setItem(getThemeStorageKey(), theme);
+}
+
+function applyTheme(theme) {
+    if (theme === 'dark') {
+        document.documentElement.classList.add('dark');
+    } else {
+        document.documentElement.classList.remove('dark');
+    }
+}
+
+function toggleTheme() {
+    const current = getSavedTheme();
+    const newTheme = current === 'light' ? 'dark' : 'light';
+    saveTheme(newTheme);
+    applyTheme(newTheme);
+}
+
+// ============================================================================
+// UPLOAD MODAL HANDLING
+// ============================================================================
+
 // Upload modal handling
 function showUploadModal() {
     document.getElementById('upload-modal').classList.remove('hidden');

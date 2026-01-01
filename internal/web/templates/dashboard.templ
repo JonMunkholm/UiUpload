@@ -30,8 +30,8 @@ templ Dashboard(groups []TableGroup) {
 		</div>
 
 		<!-- Upload progress modal -->
-		<div id="upload-modal" class="hidden fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
-			<div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+		<div id="upload-modal" class="hidden fixed inset-0 bg-gray-500 bg-opacity-75 dark:bg-gray-900 dark:bg-opacity-80 flex items-center justify-center z-50">
+			<div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 dark:bg-gray-800">
 				<div id="upload-progress-container">
 					<!-- Progress updates injected here via HTMX -->
 				</div>
@@ -39,11 +39,11 @@ templ Dashboard(groups []TableGroup) {
 		</div>
 
 		<!-- Preview Modal -->
-		<div id="preview-modal" class="hidden fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
-			<div class="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[80vh] flex flex-col">
-				<div class="flex items-center justify-between p-4 border-b">
-					<h3 class="text-lg font-semibold text-gray-900">Preview Upload</h3>
-					<button onclick="cancelPreview()" class="text-gray-400 hover:text-gray-600">
+		<div id="preview-modal" class="hidden fixed inset-0 bg-gray-500 bg-opacity-75 dark:bg-gray-900 dark:bg-opacity-80 flex items-center justify-center z-50">
+			<div class="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[80vh] flex flex-col dark:bg-gray-800">
+				<div class="flex items-center justify-between p-4 border-b dark:border-gray-700">
+					<h3 class="text-lg font-semibold text-gray-900 dark:text-white">Preview Upload</h3>
+					<button onclick="cancelPreview()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
 						<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
 						</svg>
@@ -52,8 +52,8 @@ templ Dashboard(groups []TableGroup) {
 				<div id="preview-content" class="p-4 overflow-y-auto flex-1">
 					<!-- Content injected by JS -->
 				</div>
-				<div class="flex justify-end gap-3 p-4 border-t">
-					<button onclick="cancelPreview()" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50">
+				<div class="flex justify-end gap-3 p-4 border-t dark:border-gray-700">
+					<button onclick="cancelPreview()" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600">
 						Cancel
 					</button>
 					<button onclick="confirmUpload()" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700">
@@ -67,10 +67,10 @@ templ Dashboard(groups []TableGroup) {
 
 templ TableGroupSection(group TableGroup) {
 	<section class="mb-8">
-		<div class="flex items-center gap-3 mb-4 pb-2 border-b border-gray-200">
+		<div class="flex items-center gap-3 mb-4 pb-2 border-b border-gray-200 dark:border-gray-700">
 			<div class="w-1.5 h-6 bg-blue-500 rounded-full"></div>
-			<h2 class="text-xl font-semibold text-gray-900">{ group.Name }</h2>
-			<span class="text-sm text-gray-500">({ fmt.Sprintf("%d", len(group.Tables)) } tables)</span>
+			<h2 class="text-xl font-semibold text-gray-900 dark:text-white">{ group.Name }</h2>
+			<span class="text-sm text-gray-500 dark:text-gray-400">({ fmt.Sprintf("%d", len(group.Tables)) } tables)</span>
 		</div>
 		<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 			for _, tableData := range group.Tables {
@@ -81,9 +81,9 @@ templ TableGroupSection(group TableGroup) {
 }
 
 templ TableCard(data TableCardData) {
-	<div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4 hover:shadow-md transition-shadow">
+	<div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4 hover:shadow-md transition-shadow dark:bg-gray-800 dark:border-gray-700">
 		<div class="flex items-center gap-2 mb-3">
-			<h3 class="font-medium text-gray-900">{ data.Info.Label }</h3>
+			<h3 class="font-medium text-gray-900 dark:text-white">{ data.Info.Label }</h3>
 			<!-- Info icon with column tooltip - keyboard accessible -->
 			<div class="tooltip-container group">
 				<button
@@ -111,12 +111,12 @@ templ TableCard(data TableCardData) {
 			<span class="text-xs font-medium text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
 				{ fmt.Sprintf("%d rows", data.RowCount) }
 			</span>
-			<span class="ml-auto text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">{ data.Info.Group }</span>
+			<span class="ml-auto text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded dark:bg-gray-700 dark:text-gray-400">{ data.Info.Group }</span>
 		</div>
 
 		<!-- Last updated timestamp -->
 		if data.LastUpload != nil {
-			<div class="text-xs text-gray-500 mb-3">
+			<div class="text-xs text-gray-500 mb-3 dark:text-gray-400">
 				Updated { formatTimeAgo(*data.LastUpload) }
 			</div>
 		}
@@ -141,7 +141,7 @@ templ TableCard(data TableCardData) {
 					<svg class="w-8 h-8 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
 					</svg>
-					<span class="text-sm text-gray-600">Drop CSV or click to upload</span>
+					<span class="text-sm text-gray-600 dark:text-gray-400">Drop CSV or click to upload</span>
 				</div>
 			</label>
 		</form>
@@ -151,7 +151,7 @@ templ TableCard(data TableCardData) {
 			<div class="flex gap-3">
 				<a
 					href={ templ.SafeURL("/table/" + data.Info.Key) }
-					class="text-xs text-gray-600 hover:text-gray-800 hover:underline font-medium"
+					class="text-xs text-gray-600 hover:text-gray-800 hover:underline font-medium dark:text-gray-400 dark:hover:text-gray-200"
 				>
 					View Data
 				</a>
@@ -175,8 +175,8 @@ templ TableCard(data TableCardData) {
 		</div>
 
 		<!-- Upload history (lazy-loaded) -->
-		<details class="mt-3 pt-3 border-t border-gray-100">
-			<summary class="cursor-pointer text-xs font-medium text-gray-600 hover:text-gray-800 select-none">
+		<details class="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+			<summary class="cursor-pointer text-xs font-medium text-gray-600 hover:text-gray-800 select-none dark:text-gray-400 dark:hover:text-gray-200">
 				History
 			</summary>
 			<div
@@ -233,19 +233,19 @@ templ UploadHistory(entries []core.UploadHistoryEntry) {
 	} else {
 		<div class="space-y-2 py-2">
 			for _, entry := range entries {
-				<div class="text-xs border-l-2 border-gray-200 pl-2">
-					<div class="flex justify-between text-gray-700">
+				<div class="text-xs border-l-2 border-gray-200 pl-2 dark:border-gray-600">
+					<div class="flex justify-between text-gray-700 dark:text-gray-300">
 						if entry.FileName != "" {
 							<span class="font-medium truncate max-w-[150px]" title={ entry.FileName }>{ entry.FileName }</span>
 						} else {
 							<span class="font-medium text-gray-400 italic">Unknown file</span>
 						}
-						<span class="text-gray-500 whitespace-nowrap ml-2">{ formatTimeAgo(entry.UploadedAt) }</span>
+						<span class="text-gray-500 whitespace-nowrap ml-2 dark:text-gray-400">{ formatTimeAgo(entry.UploadedAt) }</span>
 					</div>
-					<div class="text-gray-500">
-						<span class="text-green-600">{ fmt.Sprintf("%d inserted", entry.RowsInserted) }</span>
+					<div class="text-gray-500 dark:text-gray-400">
+						<span class="text-green-600 dark:text-green-500">{ fmt.Sprintf("%d inserted", entry.RowsInserted) }</span>
 						if entry.RowsSkipped > 0 {
-							<span class="text-amber-600 ml-1">{ fmt.Sprintf(", %d skipped", entry.RowsSkipped) }</span>
+							<span class="text-amber-600 dark:text-amber-500 ml-1">{ fmt.Sprintf(", %d skipped", entry.RowsSkipped) }</span>
 						}
 						if entry.DurationMs > 0 {
 							<span class="text-gray-400 ml-1">({ fmt.Sprintf("%dms", entry.DurationMs) })</span>

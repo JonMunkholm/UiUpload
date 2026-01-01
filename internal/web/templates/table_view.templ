@@ -25,11 +25,11 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 	@Layout(info.Label + " - Data View") {
 		<!-- Header with back link -->
 		<div class="mb-6">
-			<a href="/" class="text-sm text-blue-600 hover:underline mb-2 inline-block">&larr; Back to Dashboard</a>
+			<a href="/" class="text-sm text-blue-600 hover:underline mb-2 inline-block dark:text-blue-400">&larr; Back to Dashboard</a>
 			<div class="flex items-center justify-between">
 				<div>
-					<h1 class="text-2xl font-semibold text-gray-900">{ info.Label }</h1>
-					<p class="text-sm text-gray-500">
+					<h1 class="text-2xl font-semibold text-gray-900 dark:text-white">{ info.Label }</h1>
+					<p class="text-sm text-gray-500 dark:text-gray-400">
 						if data.SearchQuery != "" {
 							{ fmt.Sprintf("%d results matching '%s'", data.TotalRows, data.SearchQuery) }
 						} else {
@@ -45,7 +45,7 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 							name="search"
 							placeholder="Search..."
 							value={ data.SearchQuery }
-							class="w-64 pl-10 pr-4 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+							class="w-64 pl-10 pr-4 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"
 							hx-get={ buildSearchURL(tableKey, data) }
 							hx-target="#table-container"
 							hx-swap="innerHTML"
@@ -62,14 +62,14 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 						<button
 							type="button"
 							onclick="toggleViewsDropdown()"
-							class="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+							class="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-700"
 						>
 							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path>
 							</svg>
 							Views
 						</button>
-						<div id="views-dropdown" class="hidden absolute right-0 z-10 mt-2 w-56 bg-white border border-gray-200 rounded-md shadow-lg">
+						<div id="views-dropdown" class="hidden absolute right-0 z-10 mt-2 w-56 bg-white border border-gray-200 rounded-md shadow-lg dark:bg-gray-800 dark:border-gray-700">
 							<!-- Populated by JS -->
 						</div>
 					</div>
@@ -78,17 +78,17 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 						<button
 							type="button"
 							onclick="toggleColumnDropdown()"
-							class="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+							class="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-700"
 						>
 							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"></path>
 							</svg>
 							Columns
 						</button>
-						<div id="column-dropdown" class="hidden absolute right-0 z-10 mt-2 w-56 bg-white border border-gray-200 rounded-md shadow-lg">
-							<div class="p-2 border-b border-gray-100 flex gap-2">
-								<button type="button" onclick="selectAllColumns()" class="text-xs text-blue-600 hover:underline">All</button>
-								<button type="button" onclick="clearAllColumns()" class="text-xs text-blue-600 hover:underline">None</button>
+						<div id="column-dropdown" class="hidden absolute right-0 z-10 mt-2 w-56 bg-white border border-gray-200 rounded-md shadow-lg dark:bg-gray-800 dark:border-gray-700">
+							<div class="p-2 border-b border-gray-100 flex gap-2 dark:border-gray-700">
+								<button type="button" onclick="selectAllColumns()" class="text-xs text-blue-600 hover:underline dark:text-blue-400">All</button>
+								<button type="button" onclick="clearAllColumns()" class="text-xs text-blue-600 hover:underline dark:text-blue-400">None</button>
 							</div>
 							<div id="column-checkboxes" class="max-h-64 overflow-y-auto p-2">
 								<!-- Checkboxes rendered by JS -->
@@ -100,17 +100,17 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 						<button
 							type="button"
 							onclick="toggleMetricsDropdown()"
-							class="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+							class="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-700"
 						>
 							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
 							</svg>
 							Metrics
 						</button>
-						<div id="metrics-dropdown" class="hidden absolute right-0 z-10 mt-2 w-48 bg-white border border-gray-200 rounded-md shadow-lg">
-							<div class="p-2 border-b border-gray-100 flex gap-2">
-								<button type="button" onclick="selectAllMetrics()" class="text-xs text-blue-600 hover:underline">All</button>
-								<button type="button" onclick="clearAllMetrics()" class="text-xs text-blue-600 hover:underline">None</button>
+						<div id="metrics-dropdown" class="hidden absolute right-0 z-10 mt-2 w-48 bg-white border border-gray-200 rounded-md shadow-lg dark:bg-gray-800 dark:border-gray-700">
+							<div class="p-2 border-b border-gray-100 flex gap-2 dark:border-gray-700">
+								<button type="button" onclick="selectAllMetrics()" class="text-xs text-blue-600 hover:underline dark:text-blue-400">All</button>
+								<button type="button" onclick="clearAllMetrics()" class="text-xs text-blue-600 hover:underline dark:text-blue-400">None</button>
 							</div>
 							<div class="p-2 space-y-3">
 								@MetricToggle("sum", "Sum")
@@ -139,7 +139,7 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 
 		<!-- Selection Bar (hidden until rows selected) -->
 		if len(info.UniqueKey) > 0 {
-			<div id="selection-bar" class="hidden mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center justify-between">
+			<div id="selection-bar" class="hidden mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center justify-between dark:bg-red-900/30 dark:border-red-800">
 				<span id="selection-count" class="text-sm font-medium text-red-800">0 rows selected</span>
 				<button
 					type="button"
@@ -160,27 +160,27 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 		</div>
 
 		<!-- Delete Confirmation Modal -->
-		<div id="delete-modal" class="hidden fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
-			<div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
-				<div class="flex items-center justify-between p-4 border-b">
-					<h3 class="text-lg font-semibold text-gray-900">Confirm Delete</h3>
-					<button onclick="hideDeleteModal()" class="text-gray-400 hover:text-gray-600">
+		<div id="delete-modal" class="hidden fixed inset-0 bg-gray-500 bg-opacity-75 dark:bg-gray-900 dark:bg-opacity-80 flex items-center justify-center z-50">
+			<div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 dark:bg-gray-800">
+				<div class="flex items-center justify-between p-4 border-b dark:border-gray-700">
+					<h3 class="text-lg font-semibold text-gray-900 dark:text-white">Confirm Delete</h3>
+					<button onclick="hideDeleteModal()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
 						<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
 						</svg>
 					</button>
 				</div>
 				<div class="p-6">
-					<p class="text-gray-700 mb-2">
+					<p class="text-gray-700 mb-2 dark:text-gray-300">
 						Are you sure you want to delete <span id="delete-count" class="font-semibold">0</span> rows?
 					</p>
-					<p class="text-sm text-red-600">This action cannot be undone.</p>
+					<p class="text-sm text-red-600 dark:text-red-400">This action cannot be undone.</p>
 				</div>
-				<div class="flex justify-end gap-3 p-4 border-t bg-gray-50 rounded-b-lg">
+				<div class="flex justify-end gap-3 p-4 border-t bg-gray-50 rounded-b-lg dark:bg-gray-700 dark:border-gray-600">
 					<button
 						type="button"
 						onclick="hideDeleteModal()"
-						class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+						class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500"
 					>
 						Cancel
 					</button>
@@ -213,26 +213,26 @@ templ TablePartial(tableKey string, info core.TableInfo, data *core.TableDataRes
 	@ActiveFiltersBar(tableKey, data)
 
 	if data.TotalRows == 0 {
-		<div class="text-center py-12 bg-white rounded-lg border border-gray-200">
+		<div class="text-center py-12 bg-white rounded-lg border border-gray-200 dark:bg-gray-800 dark:border-gray-700">
 			<svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
 			</svg>
-			<h3 class="mt-2 text-sm font-medium text-gray-900">No data yet</h3>
-			<p class="mt-1 text-sm text-gray-500">Upload a CSV file to populate this table.</p>
+			<h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">No data yet</h3>
+			<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Upload a CSV file to populate this table.</p>
 			if len(data.ActiveFilters) > 0 {
-				<p class="mt-2 text-sm text-gray-500">Try clearing filters above to see all data.</p>
+				<p class="mt-2 text-sm text-gray-500 dark:text-gray-400">Try clearing filters above to see all data.</p>
 			}
 			<div class="mt-6">
-				<a href="/" class="text-sm font-medium text-blue-600 hover:text-blue-500">
+				<a href="/" class="text-sm font-medium text-blue-600 hover:text-blue-500 dark:text-blue-400">
 					Go to Dashboard to upload &rarr;
 				</a>
 			</div>
 		</div>
 	} else {
 		<!-- Scrollable table wrapper -->
-		<div class="overflow-x-auto border border-gray-200 rounded-lg shadow-sm">
-			<table class="min-w-full divide-y divide-gray-200">
-				<thead class="bg-gray-50">
+		<div class="overflow-x-auto border border-gray-200 rounded-lg shadow-sm dark:border-gray-700">
+			<table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+				<thead class="bg-gray-50 dark:bg-gray-800">
 					<tr>
 						<!-- Checkbox column header (only if table has unique key) -->
 						if len(info.UniqueKey) > 0 {
@@ -251,9 +251,9 @@ templ TablePartial(tableKey string, info core.TableInfo, data *core.TableDataRes
 						}
 					</tr>
 				</thead>
-				<tbody class="bg-white divide-y divide-gray-100">
+				<tbody class="bg-white divide-y divide-gray-100 dark:bg-gray-900 dark:divide-gray-700">
 					for _, row := range data.Rows {
-						<tr class="hover:bg-blue-50 transition-colors" data-row-key={ buildRowKey(info.UniqueKey, row) }>
+						<tr class="hover:bg-blue-50 transition-colors dark:hover:bg-gray-800" data-row-key={ buildRowKey(info.UniqueKey, row) }>
 							<!-- Checkbox column (only if table has unique key) -->
 							if len(info.UniqueKey) > 0 {
 								<td class="px-4 py-2 w-10">
@@ -268,7 +268,7 @@ templ TablePartial(tableKey string, info core.TableInfo, data *core.TableDataRes
 							for _, col := range info.Columns {
 								if len(info.UniqueKey) > 0 {
 									<td
-										class="px-4 py-2 text-sm text-gray-700 whitespace-nowrap max-w-xs truncate editable-cell cursor-pointer"
+										class="px-4 py-2 text-sm text-gray-700 whitespace-nowrap max-w-xs truncate editable-cell cursor-pointer dark:text-gray-300"
 										title={ formatCellTitle(row[col]) }
 										data-col-name={ col }
 										data-raw-value={ formatRawValue(row[col]) }
@@ -276,7 +276,7 @@ templ TablePartial(tableKey string, info core.TableInfo, data *core.TableDataRes
 										{ formatCell(row[col]) }
 									</td>
 								} else {
-									<td class="px-4 py-2 text-sm text-gray-700 whitespace-nowrap max-w-xs truncate" title={ formatCellTitle(row[col]) }>
+									<td class="px-4 py-2 text-sm text-gray-700 whitespace-nowrap max-w-xs truncate dark:text-gray-300" title={ formatCellTitle(row[col]) }>
 										{ formatCell(row[col]) }
 									</td>
 								}
@@ -286,7 +286,7 @@ templ TablePartial(tableKey string, info core.TableInfo, data *core.TableDataRes
 				</tbody>
 				// Aggregations footer (only if numeric columns have data)
 				if hasAggregations(data.Aggregations) {
-					<tfoot id="aggregation-footer" class="bg-gray-50 border-t-2 border-gray-300">
+					<tfoot id="aggregation-footer" class="bg-gray-50 border-t-2 border-gray-300 dark:bg-gray-800 dark:border-gray-600">
 						@AggregationRow("Sum", info, data, "sum")
 						@AggregationRow("Avg", info, data, "avg")
 						@AggregationRow("Min", info, data, "min")
@@ -304,14 +304,14 @@ templ TablePartial(tableKey string, info core.TableInfo, data *core.TableDataRes
 
 templ ActiveFiltersBar(tableKey string, data *core.TableDataResult) {
 	if len(data.ActiveFilters) > 0 {
-		<div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-3 flex-wrap">
-			<span class="text-sm font-medium text-blue-800">Active filters:</span>
+		<div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-3 flex-wrap dark:bg-blue-900/30 dark:border-blue-800">
+			<span class="text-sm font-medium text-blue-800 dark:text-blue-300">Active filters:</span>
 			for col, opVal := range data.ActiveFilters {
-				<div class="inline-flex items-center gap-1 px-2 py-1 bg-white border border-blue-300 rounded-full text-sm text-blue-800">
+				<div class="inline-flex items-center gap-1 px-2 py-1 bg-white border border-blue-300 rounded-full text-sm text-blue-800 dark:bg-gray-800 dark:border-blue-700 dark:text-blue-300">
 					<span>{ col }: { formatFilterDisplay(opVal) }</span>
 					<button
 						type="button"
-						class="ml-1 text-blue-600 hover:text-blue-800"
+						class="ml-1 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
 						hx-get={ buildClearFilterURL(tableKey, col, data) }
 						hx-target="#table-container"
 						hx-swap="innerHTML"
@@ -326,7 +326,7 @@ templ ActiveFiltersBar(tableKey string, data *core.TableDataResult) {
 			}
 			<button
 				type="button"
-				class="text-sm text-blue-600 hover:text-blue-800 hover:underline"
+				class="text-sm text-blue-600 hover:text-blue-800 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
 				hx-get={ buildClearAllFiltersURL(tableKey, data) }
 				hx-target="#table-container"
 				hx-swap="innerHTML"
@@ -339,11 +339,11 @@ templ ActiveFiltersBar(tableKey string, data *core.TableDataResult) {
 }
 
 templ SortableHeader(tableKey, col string, data *core.TableDataResult, columnMeta []ColumnMeta) {
-	<th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider select-none relative">
+	<th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider select-none relative dark:text-gray-400">
 		<div class="flex items-center gap-1">
 			<!-- Sortable part -->
 			<div
-				class="flex items-center gap-1 cursor-pointer hover:text-gray-900"
+				class="flex items-center gap-1 cursor-pointer hover:text-gray-900 dark:hover:text-white"
 				data-col={ col }
 				data-table={ tableKey }
 				onclick="handleSortClick(event, this)"
@@ -412,7 +412,7 @@ func sanitizeForJS(s string) string {
 templ FilterDropdown(tableKey, col string, data *core.TableDataResult, columnMeta []ColumnMeta) {
 	<div
 		id={ "filter-dropdown-" + sanitizeID(col) }
-		class="hidden absolute left-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg p-3 min-w-[200px]"
+		class="hidden absolute left-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg p-3 min-w-[200px] dark:bg-gray-800 dark:border-gray-700"
 		onclick="event.stopPropagation()"
 	>
 		if cm := getColumnMeta(col, columnMeta); cm != nil {
@@ -443,8 +443,8 @@ func sanitizeID(s string) string {
 
 templ TextFilterControls(tableKey, col string, data *core.TableDataResult) {
 	<div class="space-y-2" data-filter-type="text" data-col={ col } data-table={ tableKey }>
-		<label class="block text-xs font-medium text-gray-700">Filter { col }</label>
-		<select class="filter-op w-full text-sm border border-gray-300 rounded px-2 py-1">
+		<label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Filter { col }</label>
+		<select class="filter-op w-full text-sm border border-gray-300 rounded px-2 py-1 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
 			<option value="contains">Contains</option>
 			<option value="eq">Equals</option>
 			<option value="starts">Starts with</option>
@@ -452,11 +452,11 @@ templ TextFilterControls(tableKey, col string, data *core.TableDataResult) {
 		</select>
 		<input
 			type="text"
-			class="filter-val w-full text-sm border border-gray-300 rounded px-2 py-1"
+			class="filter-val w-full text-sm border border-gray-300 rounded px-2 py-1 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"
 			placeholder="Filter value..."
 		/>
-		<div class="flex justify-between pt-2 border-t border-gray-100">
-			<button type="button" class="filter-clear-btn text-xs text-gray-600 hover:text-gray-800">
+		<div class="flex justify-between pt-2 border-t border-gray-100 dark:border-gray-700">
+			<button type="button" class="filter-clear-btn text-xs text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200">
 				Clear
 			</button>
 			<button type="button" class="filter-apply-btn text-xs text-white bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded">
@@ -468,19 +468,19 @@ templ TextFilterControls(tableKey, col string, data *core.TableDataResult) {
 
 templ NumericFilterControls(tableKey, col string, data *core.TableDataResult) {
 	<div class="space-y-2" data-filter-type="numeric" data-col={ col } data-table={ tableKey }>
-		<label class="block text-xs font-medium text-gray-700">Filter { col }</label>
+		<label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Filter { col }</label>
 		<div class="grid grid-cols-2 gap-2">
 			<div>
-				<label class="text-xs text-gray-500">Min</label>
-				<input type="number" class="filter-min w-full text-sm border border-gray-300 rounded px-2 py-1" placeholder="Min"/>
+				<label class="text-xs text-gray-500 dark:text-gray-400">Min</label>
+				<input type="number" class="filter-min w-full text-sm border border-gray-300 rounded px-2 py-1 dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Min"/>
 			</div>
 			<div>
-				<label class="text-xs text-gray-500">Max</label>
-				<input type="number" class="filter-max w-full text-sm border border-gray-300 rounded px-2 py-1" placeholder="Max"/>
+				<label class="text-xs text-gray-500 dark:text-gray-400">Max</label>
+				<input type="number" class="filter-max w-full text-sm border border-gray-300 rounded px-2 py-1 dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Max"/>
 			</div>
 		</div>
-		<div class="flex justify-between pt-2 border-t border-gray-100">
-			<button type="button" class="filter-clear-btn text-xs text-gray-600 hover:text-gray-800">
+		<div class="flex justify-between pt-2 border-t border-gray-100 dark:border-gray-700">
+			<button type="button" class="filter-clear-btn text-xs text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200">
 				Clear
 			</button>
 			<button type="button" class="filter-apply-btn text-xs text-white bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded">
@@ -492,19 +492,19 @@ templ NumericFilterControls(tableKey, col string, data *core.TableDataResult) {
 
 templ DateFilterControls(tableKey, col string, data *core.TableDataResult) {
 	<div class="space-y-2" data-filter-type="date" data-col={ col } data-table={ tableKey }>
-		<label class="block text-xs font-medium text-gray-700">Filter { col }</label>
+		<label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Filter { col }</label>
 		<div class="grid grid-cols-2 gap-2">
 			<div>
-				<label class="text-xs text-gray-500">From</label>
-				<input type="date" class="filter-from w-full text-sm border border-gray-300 rounded px-2 py-1"/>
+				<label class="text-xs text-gray-500 dark:text-gray-400">From</label>
+				<input type="date" class="filter-from w-full text-sm border border-gray-300 rounded px-2 py-1 dark:bg-gray-700 dark:border-gray-600 dark:text-white"/>
 			</div>
 			<div>
-				<label class="text-xs text-gray-500">To</label>
-				<input type="date" class="filter-to w-full text-sm border border-gray-300 rounded px-2 py-1"/>
+				<label class="text-xs text-gray-500 dark:text-gray-400">To</label>
+				<input type="date" class="filter-to w-full text-sm border border-gray-300 rounded px-2 py-1 dark:bg-gray-700 dark:border-gray-600 dark:text-white"/>
 			</div>
 		</div>
-		<div class="flex justify-between pt-2 border-t border-gray-100">
-			<button type="button" class="filter-clear-btn text-xs text-gray-600 hover:text-gray-800">
+		<div class="flex justify-between pt-2 border-t border-gray-100 dark:border-gray-700">
+			<button type="button" class="filter-clear-btn text-xs text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200">
 				Clear
 			</button>
 			<button type="button" class="filter-apply-btn text-xs text-white bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded">
@@ -516,23 +516,23 @@ templ DateFilterControls(tableKey, col string, data *core.TableDataResult) {
 
 templ BoolFilterControls(tableKey, col string, data *core.TableDataResult) {
 	<div class="space-y-2" data-filter-type="bool" data-col={ col } data-table={ tableKey }>
-		<label class="block text-xs font-medium text-gray-700">Filter { col }</label>
+		<label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Filter { col }</label>
 		<div class="space-y-1">
-			<label class="flex items-center gap-2 text-sm">
+			<label class="flex items-center gap-2 text-sm dark:text-gray-300">
 				<input type="radio" class="filter-bool-radio" name={ "filter-bool-" + sanitizeID(col) } value="" checked/>
 				<span>Any</span>
 			</label>
-			<label class="flex items-center gap-2 text-sm">
+			<label class="flex items-center gap-2 text-sm dark:text-gray-300">
 				<input type="radio" class="filter-bool-radio" name={ "filter-bool-" + sanitizeID(col) } value="true"/>
 				<span>Yes</span>
 			</label>
-			<label class="flex items-center gap-2 text-sm">
+			<label class="flex items-center gap-2 text-sm dark:text-gray-300">
 				<input type="radio" class="filter-bool-radio" name={ "filter-bool-" + sanitizeID(col) } value="false"/>
 				<span>No</span>
 			</label>
 		</div>
-		<div class="flex justify-between pt-2 border-t border-gray-100">
-			<button type="button" class="filter-clear-btn text-xs text-gray-600 hover:text-gray-800">
+		<div class="flex justify-between pt-2 border-t border-gray-100 dark:border-gray-700">
+			<button type="button" class="filter-clear-btn text-xs text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200">
 				Clear
 			</button>
 			<button type="button" class="filter-apply-btn text-xs text-white bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded">
@@ -565,14 +565,14 @@ templ EnumFilterControls(tableKey, col string, data *core.TableDataResult, enumV
 }
 
 templ Pagination(tableKey string, data *core.TableDataResult) {
-	<div class="flex items-center justify-between px-4 py-3 bg-white border-t border-gray-200 rounded-b-lg">
-		<div class="text-sm text-gray-500">
+	<div class="flex items-center justify-between px-4 py-3 bg-white border-t border-gray-200 rounded-b-lg dark:bg-gray-800 dark:border-gray-700">
+		<div class="text-sm text-gray-500 dark:text-gray-400">
 			{ formatRange(data) }
 		</div>
 		<div class="flex items-center gap-2">
 			if data.Page > 1 {
 				<button
-					class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+					class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600"
 					hx-get={ buildPageURL(tableKey, data.Page-1, data) }
 					hx-target="#table-container"
 					hx-swap="innerHTML"
@@ -595,7 +595,7 @@ templ Pagination(tableKey string, data *core.TableDataResult) {
 					<span class="px-2 text-gray-400">...</span>
 				} else {
 					<button
-						class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+						class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600"
 						hx-get={ buildPageURL(tableKey, p, data) }
 						hx-target="#table-container"
 						hx-swap="innerHTML"
@@ -608,7 +608,7 @@ templ Pagination(tableKey string, data *core.TableDataResult) {
 
 			if data.Page < data.TotalPages {
 				<button
-					class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+					class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600"
 					hx-get={ buildPageURL(tableKey, data.Page+1, data) }
 					hx-target="#table-container"
 					hx-swap="innerHTML"

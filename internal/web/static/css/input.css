@@ -6,7 +6,7 @@
 
 @layer components {
     .btn {
-        @apply px-4 py-2 rounded font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2;
+        @apply px-4 py-2 rounded font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-gray-900;
     }
 
     .btn-primary {
@@ -18,17 +18,20 @@
     }
 
     .btn-secondary {
-        @apply bg-gray-200 text-gray-800 hover:bg-gray-300 focus:ring-gray-500;
+        @apply bg-gray-200 text-gray-800 hover:bg-gray-300 focus:ring-gray-500
+               dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600;
     }
 
     .card {
-        @apply bg-white rounded-lg shadow-md p-6;
+        @apply bg-white rounded-lg shadow-md p-6
+               dark:bg-gray-800 dark:shadow-gray-900/50;
     }
 
     .upload-zone {
         @apply border-2 border-dashed border-gray-300 rounded-lg p-8 text-center
                transition-all duration-200 cursor-pointer
-               hover:border-blue-500 hover:bg-blue-50 hover:scale-[1.01] hover:shadow-md;
+               hover:border-blue-500 hover:bg-blue-50 hover:scale-[1.01] hover:shadow-md
+               dark:border-gray-600 dark:hover:bg-blue-900/20 dark:hover:border-blue-400;
     }
 
     .upload-zone:hover svg {
@@ -36,7 +39,8 @@
     }
 
     .upload-zone.dragover {
-        @apply border-blue-500 bg-blue-50 scale-[1.01] shadow-md;
+        @apply border-blue-500 bg-blue-50 scale-[1.01] shadow-md
+               dark:bg-blue-900/20;
     }
 
     /* Tooltip system */
@@ -48,7 +52,8 @@
         @apply invisible opacity-0 absolute z-50 left-6 -top-1
                bg-gray-900 text-white px-3 py-2 rounded-lg shadow-lg
                min-w-48 max-w-64 max-h-64 overflow-y-auto
-               transition-all duration-200 text-left;
+               transition-all duration-200 text-left
+               dark:bg-gray-700;
     }
 
     .tooltip-container:hover .tooltip,
