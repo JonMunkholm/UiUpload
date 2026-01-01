@@ -398,24 +398,69 @@ type TableRow map[string]interface{}
 
 // TableDataResult contains paginated table data.
 type TableDataResult struct {
-	Rows       []TableRow
-	TotalRows  int64
-	Page       int
-	PageSize   int
-	TotalPages int
-	SortColumn string
-	SortDir    string
+	Rows        []TableRow
+	TotalRows   int64
+	Page        int
+	PageSize    int
+	TotalPages  int
+	SortColumn  string
+	SortDir     string
+	SearchQuery string // Current search term, if any
 }
 
-// GetTableData fetches paginated, sorted data from any table.
-func (s *Service) GetTableData(ctx context.Context, tableKey string, page, pageSize int, sortColumn, sortDir string) (*TableDataResult, error) {
+// GetTableData fetches paginated, sorted, and optionally filtered data from any table.
+func (s *Service) GetTableData(ctx context.Context, tableKey string, page, pageSize int, sortColumn, sortDir, searchQuery string) (*TableDataResult, error) {
 	def, ok := Get(tableKey)
 	if !ok {
 		return nil, fmt.Errorf("unknown table: %s", tableKey)
 	}
 
-	// Get total count
-	totalRows, err := countTable(ctx, s.pool, tableKey)
+	// Build column mappings (display name -> DB column)
+	displayColumns := def.Info.Columns
+	dbColumns := make([]string, len(displayColumns))
+	quotedCols := make([]string, len(displayColumns))
+	for i, col := range displayColumns {
+		dbCol := ""
+		for _, spec := range def.FieldSpecs {
+			if spec.Name == col {
+				dbCol = spec.DBColumn
+				break
+			}
+		}
+		if dbCol == "" {
+			dbCol = toDBColumnName(col)
+		}
+		dbColumns[i] = dbCol
+		quotedCols[i] = quoteIdentifier(dbCol)
+	}
+
+	// Build WHERE clause for search (only text columns)
+	var whereClause string
+	var queryArgs []interface{}
+	argIndex := 1
+
+	if searchQuery != "" {
+		var textConditions []string
+		for _, spec := range def.FieldSpecs {
+			if spec.Type == FieldText {
+				dbCol := spec.DBColumn
+				if dbCol == "" {
+					dbCol = toDBColumnName(spec.Name)
+				}
+				textConditions = append(textConditions, fmt.Sprintf("%s ILIKE $1", quoteIdentifier(dbCol)))
+			}
+		}
+		if len(textConditions) > 0 {
+			whereClause = " WHERE " + strings.Join(textConditions, " OR ")
+			queryArgs = append(queryArgs, "%"+searchQuery+"%")
+			argIndex = 2
+		}
+	}
+
+	// Get total count (with search filter)
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s%s", quoteIdentifier(tableKey), whereClause)
+	var totalRows int64
+	err := s.pool.QueryRow(ctx, countQuery, queryArgs...).Scan(&totalRows)
 	if err != nil {
 		return nil, fmt.Errorf("count rows: %w", err)
 	}
@@ -434,32 +479,11 @@ func (s *Service) GetTableData(ctx context.Context, tableKey string, page, pageS
 	offset := (page - 1) * pageSize
 
 	// Validate sort column
-	displayColumns := def.Info.Columns
 	if sortColumn == "" || !containsColumn(displayColumns, sortColumn) {
-		sortColumn = displayColumns[0] // Default to first column
+		sortColumn = displayColumns[0]
 	}
 	if sortDir != "asc" && sortDir != "desc" {
 		sortDir = "asc"
-	}
-
-	// Build query with DB column names
-	// Use DBColumn from FieldSpec if set, otherwise convert display name to snake_case
-	dbColumns := make([]string, len(displayColumns))
-	quotedCols := make([]string, len(displayColumns))
-	for i, col := range displayColumns {
-		// Look up DBColumn from FieldSpec
-		dbCol := ""
-		for _, spec := range def.FieldSpecs {
-			if spec.Name == col {
-				dbCol = spec.DBColumn
-				break
-			}
-		}
-		if dbCol == "" {
-			dbCol = toDBColumnName(col)
-		}
-		dbColumns[i] = dbCol
-		quotedCols[i] = quoteIdentifier(dbCol)
 	}
 
 	// Find DB column name for sort column
@@ -471,22 +495,27 @@ func (s *Service) GetTableData(ctx context.Context, tableKey string, page, pageS
 		}
 	}
 
+	// Build SELECT query with WHERE clause
 	query := fmt.Sprintf(
-		"SELECT %s FROM %s ORDER BY %s %s LIMIT $1 OFFSET $2",
+		"SELECT %s FROM %s%s ORDER BY %s %s LIMIT $%d OFFSET $%d",
 		strings.Join(quotedCols, ", "),
 		quoteIdentifier(tableKey),
+		whereClause,
 		quoteIdentifier(sortDBColumn),
 		sortDir,
+		argIndex,
+		argIndex+1,
 	)
+	queryArgs = append(queryArgs, pageSize, offset)
 
 	// Execute query
-	rows, err := s.pool.Query(ctx, query, pageSize, offset)
+	rows, err := s.pool.Query(ctx, query, queryArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("query rows: %w", err)
 	}
 	defer rows.Close()
 
-	// Collect results - map DB values back to display column names
+	// Collect results
 	var resultRows []TableRow
 	for rows.Next() {
 		values, err := rows.Values()
@@ -506,13 +535,14 @@ func (s *Service) GetTableData(ctx context.Context, tableKey string, page, pageS
 	}
 
 	return &TableDataResult{
-		Rows:       resultRows,
-		TotalRows:  totalRows,
-		Page:       page,
-		PageSize:   pageSize,
-		TotalPages: totalPages,
-		SortColumn: sortColumn,
-		SortDir:    sortDir,
+		Rows:        resultRows,
+		TotalRows:   totalRows,
+		Page:        page,
+		PageSize:    pageSize,
+		TotalPages:  totalPages,
+		SortColumn:  sortColumn,
+		SortDir:     sortDir,
+		SearchQuery: searchQuery,
 	}, nil
 }
 

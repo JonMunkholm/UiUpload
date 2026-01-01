@@ -2,6 +2,7 @@ package templates
 
 import (
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/JonMunkholm/TUI/internal/core"
@@ -16,19 +17,47 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 			<div class="flex items-center justify-between">
 				<div>
 					<h1 class="text-2xl font-semibold text-gray-900">{ info.Label }</h1>
-					<p class="text-sm text-gray-500">{ fmt.Sprintf("%d total rows", data.TotalRows) }</p>
+					<p class="text-sm text-gray-500">
+						if data.SearchQuery != "" {
+							{ fmt.Sprintf("%d results matching '%s'", data.TotalRows, data.SearchQuery) }
+						} else {
+							{ fmt.Sprintf("%d total rows", data.TotalRows) }
+						}
+					</p>
 				</div>
-				if data.TotalRows > 0 {
-					<a
-						href={ templ.SafeURL("/api/export/" + tableKey) }
-						class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
-					>
-						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+				<div class="flex items-center gap-4">
+					<!-- Search input -->
+					<div class="relative">
+						<input
+							type="search"
+							name="search"
+							placeholder="Search..."
+							value={ data.SearchQuery }
+							class="w-64 pl-10 pr-4 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+							hx-get={ buildSearchURL(tableKey, data) }
+							hx-target="#table-container"
+							hx-swap="innerHTML"
+							hx-push-url="true"
+							hx-trigger="keyup changed delay:300ms, search"
+							hx-include="this"
+						/>
+						<svg class="absolute left-3 top-2.5 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
 						</svg>
-						Export CSV
-					</a>
-				}
+					</div>
+					<!-- Export button -->
+					if data.TotalRows > 0 {
+						<a
+							href={ templ.SafeURL("/api/export/" + tableKey) }
+							class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
+						>
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+							</svg>
+							Export CSV
+						</a>
+					}
+				</div>
 			</div>
 		</div>
 
@@ -302,17 +331,33 @@ func formatRange(data *core.TableDataResult) string {
 }
 
 // buildSortURL builds the URL for sorting by a column.
+// Resets to page 1 and preserves search query.
 func buildSortURL(tableKey, col string, data *core.TableDataResult) string {
 	dir := "asc"
 	if data.SortColumn == col && data.SortDir == "asc" {
 		dir = "desc"
 	}
-	return fmt.Sprintf("/table/%s?page=1&sort=%s&dir=%s", tableKey, col, dir)
+	base := fmt.Sprintf("/table/%s?page=1&sort=%s&dir=%s", tableKey, col, dir)
+	if data.SearchQuery != "" {
+		return base + "&search=" + url.QueryEscape(data.SearchQuery)
+	}
+	return base
 }
 
 // buildPageURL builds the URL for a specific page.
+// Preserves sort and search.
 func buildPageURL(tableKey string, page int, data *core.TableDataResult) string {
-	return fmt.Sprintf("/table/%s?page=%d&sort=%s&dir=%s", tableKey, page, data.SortColumn, data.SortDir)
+	base := fmt.Sprintf("/table/%s?page=%d&sort=%s&dir=%s", tableKey, page, data.SortColumn, data.SortDir)
+	if data.SearchQuery != "" {
+		return base + "&search=" + url.QueryEscape(data.SearchQuery)
+	}
+	return base
+}
+
+// buildSearchURL builds the base URL for search submissions.
+// Resets to page 1 and preserves sort.
+func buildSearchURL(tableKey string, data *core.TableDataResult) string {
+	return fmt.Sprintf("/table/%s?page=1&sort=%s&dir=%s", tableKey, data.SortColumn, data.SortDir)
 }
 
 // pageNumbers returns the page numbers to display in pagination.

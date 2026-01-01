@@ -412,9 +412,10 @@ func (s *Server) handleTableView(w http.ResponseWriter, r *http.Request) {
 	page := parseIntParam(r, "page", 1)
 	sort := r.URL.Query().Get("sort")
 	dir := r.URL.Query().Get("dir")
+	search := r.URL.Query().Get("search")
 
 	// Fetch data
-	data, err := s.service.GetTableData(r.Context(), tableKey, page, 50, sort, dir)
+	data, err := s.service.GetTableData(r.Context(), tableKey, page, 50, sort, dir, search)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
