@@ -1,0 +1,119 @@
+package components
+
+import (
+	"fmt"
+	"github.com/JonMunkholm/TUI/internal/core"
+)
+
+templ ProgressBar(progress core.UploadProgress) {
+	<div class="space-y-3">
+		<div class="flex items-center justify-between">
+			<span class="text-sm font-medium text-gray-700">{ progress.FileName }</span>
+			<span class="text-sm text-gray-500">{ phaseLabel(progress.Phase) }</span>
+		</div>
+
+		<div class="w-full bg-gray-200 rounded-full h-2.5">
+			<div
+				class={ "h-2.5 rounded-full transition-all duration-300", progressBarColor(progress.Phase) }
+				style={ fmt.Sprintf("width: %d%%", progress.Percent()) }
+			></div>
+		</div>
+
+		<div class="flex justify-between text-xs text-gray-500">
+			<span>{ fmt.Sprintf("%d / %d rows", progress.CurrentRow, progress.TotalRows) }</span>
+			<span>{ fmt.Sprintf("%d inserted, %d skipped", progress.Inserted, progress.Skipped) }</span>
+		</div>
+
+		if progress.Error != "" {
+			<div class="mt-2 text-sm text-red-600 bg-red-50 rounded p-2">
+				{ progress.Error }
+			</div>
+		}
+	</div>
+}
+
+templ UploadComplete(result *core.UploadResult) {
+	<div class="space-y-4">
+		<div class="flex items-center gap-2">
+			if result.Error != "" {
+				<svg class="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+				</svg>
+				<span class="font-medium text-red-700">Upload Failed</span>
+			} else {
+				<svg class="w-6 h-6 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+				</svg>
+				<span class="font-medium text-green-700">Upload Complete</span>
+			}
+		</div>
+
+		<div class="bg-gray-50 rounded-lg p-4 space-y-2">
+			<div class="flex justify-between text-sm">
+				<span class="text-gray-500">File</span>
+				<span class="text-gray-900">{ result.FileName }</span>
+			</div>
+			<div class="flex justify-between text-sm">
+				<span class="text-gray-500">Duration</span>
+				<span class="text-gray-900">{ result.Duration.String() }</span>
+			</div>
+			<div class="flex justify-between text-sm">
+				<span class="text-gray-500">Inserted</span>
+				<span class="text-gray-900 font-medium">{ fmt.Sprintf("%d", result.Inserted) }</span>
+			</div>
+			if result.Skipped > 0 {
+				<div class="flex justify-between text-sm">
+					<span class="text-gray-500">Skipped</span>
+					<span class="text-amber-600 font-medium">{ fmt.Sprintf("%d", result.Skipped) }</span>
+				</div>
+			}
+		</div>
+
+		if result.Error != "" {
+			<div class="text-sm text-red-600 bg-red-50 rounded p-3">
+				{ result.Error }
+			</div>
+		}
+
+		<button
+			onclick="hideUploadModal()"
+			class="w-full py-2 px-4 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+		>
+			Close
+		</button>
+	</div>
+}
+
+func phaseLabel(phase core.UploadPhase) string {
+	switch phase {
+	case core.PhaseStarting:
+		return "Starting..."
+	case core.PhaseReading:
+		return "Reading file..."
+	case core.PhaseValidating:
+		return "Validating..."
+	case core.PhaseInserting:
+		return "Inserting rows..."
+	case core.PhaseComplete:
+		return "Complete"
+	case core.PhaseFailed:
+		return "Failed"
+	case core.PhaseCancelled:
+		return "Cancelled"
+	default:
+		return string(phase)
+	}
+}
+
+func progressBarColor(phase core.UploadPhase) string {
+	switch phase {
+	case core.PhaseComplete:
+		return "bg-green-500"
+	case core.PhaseFailed:
+		return "bg-red-500"
+	case core.PhaseCancelled:
+		return "bg-yellow-500"
+	default:
+		return "bg-blue-500"
+	}
+}

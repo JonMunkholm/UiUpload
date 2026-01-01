@@ -1,0 +1,113 @@
+package templates
+
+import (
+	"fmt"
+	"github.com/JonMunkholm/TUI/internal/core"
+)
+
+// TableGroup represents a group of tables for display.
+type TableGroup struct {
+	Name   string
+	Tables []core.TableInfo
+}
+
+templ Dashboard(groups []TableGroup) {
+	@Layout("Dashboard") {
+		<div class="space-y-8">
+			for _, group := range groups {
+				@TableGroupSection(group)
+			}
+		</div>
+
+		<!-- Upload progress modal -->
+		<div id="upload-modal" class="hidden fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
+			<div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+				<div id="upload-progress-container">
+					<!-- Progress updates injected here via HTMX -->
+				</div>
+			</div>
+		</div>
+	}
+}
+
+templ TableGroupSection(group TableGroup) {
+	<section class="mb-8">
+		<div class="flex items-center gap-3 mb-4 pb-2 border-b border-gray-200">
+			<div class="w-1.5 h-6 bg-blue-500 rounded-full"></div>
+			<h2 class="text-xl font-semibold text-gray-900">{ group.Name }</h2>
+			<span class="text-sm text-gray-500">({ fmt.Sprintf("%d", len(group.Tables)) } tables)</span>
+		</div>
+		<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+			for _, table := range group.Tables {
+				@TableCard(table)
+			}
+		</div>
+	</section>
+}
+
+templ TableCard(table core.TableInfo) {
+	<div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4 hover:shadow-md transition-shadow">
+		<div class="flex items-center gap-2 mb-3">
+			<h3 class="font-medium text-gray-900">{ table.Label }</h3>
+			<!-- Info icon with column tooltip - keyboard accessible -->
+			<div class="tooltip-container group">
+				<button
+					type="button"
+					class="p-1 -m-1 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+					aria-label={ "View expected columns for " + table.Label }
+					aria-describedby={ "tooltip-" + table.Key }
+				>
+					<svg class="w-4 h-4 text-gray-400 group-hover:text-blue-500 group-focus-within:text-blue-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+					</svg>
+				</button>
+				<div class="tooltip" role="tooltip" id={ "tooltip-" + table.Key }>
+					<div class="text-xs font-medium text-gray-300 mb-2">Expected columns:</div>
+					if len(table.Columns) > 0 {
+						for _, col := range table.Columns {
+							<div class="text-xs text-white py-0.5">{ col }</div>
+						}
+					} else {
+						<div class="text-xs text-gray-400 italic">No columns defined</div>
+					}
+				</div>
+			</div>
+			<span class="ml-auto text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">{ table.Group }</span>
+		</div>
+
+		<!-- Upload form - must be a form for HTMX to serialize file inputs -->
+		<form
+			id={ "upload-form-" + table.Key }
+			class="upload-zone mb-3"
+			hx-post={ "/api/upload/" + table.Key }
+			hx-encoding="multipart/form-data"
+			hx-trigger="change from:find input[type=file]"
+			hx-swap="none"
+			hx-on::before-request="showUploadModal()"
+			hx-on::after-request="handleUploadResponse(event)"
+		>
+			<input type="file" name="file" accept=".csv" class="hidden" id={ "file-" + table.Key }/>
+			<label for={ "file-" + table.Key } class="cursor-pointer block">
+				<div class="flex flex-col items-center py-4">
+					<svg class="w-8 h-8 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+					</svg>
+					<span class="text-sm text-gray-600">Drop CSV or click to upload</span>
+				</div>
+			</label>
+		</form>
+
+		<!-- Actions -->
+		<div class="flex justify-end">
+			<button
+				hx-post={ "/api/reset/" + table.Key }
+				hx-confirm={ "Reset " + table.Label + "? This cannot be undone." }
+				hx-swap="none"
+				hx-on::after-request="showToast('Table reset successfully')"
+				class="text-xs text-red-600 hover:text-red-700 hover:underline font-medium px-2 py-1 rounded focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1"
+			>
+				Reset
+			</button>
+		</div>
+	</div>
+}

@@ -1,0 +1,48 @@
+package templates
+
+templ Layout(title string) {
+	<!DOCTYPE html>
+	<html lang="en" class="h-full">
+	<head>
+		<meta charset="UTF-8"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+		<title>{ title } - CSV Importer</title>
+		<link href="/static/css/output.css" rel="stylesheet"/>
+		<script src="/static/js/htmx.min.js"></script>
+		<script src="/static/js/htmx-sse.min.js"></script>
+		<script src="/static/js/app.js" defer></script>
+	</head>
+	<body class="h-full bg-gray-50 overflow-x-hidden">
+		<div class="min-h-full">
+			@Header()
+			<main class="py-8">
+				<div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+					{ children... }
+				</div>
+			</main>
+		</div>
+	</body>
+	</html>
+}
+
+templ Header() {
+	<nav class="bg-white shadow-sm border-b border-gray-200">
+		<div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+			<div class="flex h-16 items-center justify-between">
+				<div class="flex items-center">
+					<h1 class="text-xl font-semibold text-gray-900">CSV Importer</h1>
+				</div>
+				<div class="flex items-center gap-4">
+					<button
+						hx-post="/api/reset"
+						hx-confirm="Reset ALL tables? This cannot be undone."
+						hx-swap="none"
+						class="text-sm font-medium text-red-600 hover:text-red-700 hover:underline focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 rounded px-2 py-1"
+					>
+						Reset All
+					</button>
+				</div>
+			</div>
+		</div>
+	</nav>
+}

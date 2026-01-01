@@ -15,3 +15,7 @@
 .env
 .env.local
 .env.*.local
+*.exe
+csv-importer
+server
+tailwindcss
