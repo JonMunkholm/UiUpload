@@ -32,6 +32,7 @@ const (
 // FieldSpec defines validation rules for a single CSV column.
 type FieldSpec struct {
 	Name       string            // Column header name (must match CSV exactly)
+	DBColumn   string            // Database column name (if different from Name, otherwise derived)
 	Type       FieldType         // Expected data type
 	Required   bool              // Column must exist in CSV header
 	AllowEmpty bool              // If true, empty values are allowed even when Required

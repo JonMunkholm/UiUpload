@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -390,4 +391,150 @@ func countTable(ctx context.Context, pool *pgxpool.Pool, tableKey string) (int64
 	default:
 		return 0, fmt.Errorf("unknown table: %s", tableKey)
 	}
+}
+
+// TableRow represents a single row of data as key-value pairs.
+type TableRow map[string]interface{}
+
+// TableDataResult contains paginated table data.
+type TableDataResult struct {
+	Rows       []TableRow
+	TotalRows  int64
+	Page       int
+	PageSize   int
+	TotalPages int
+	SortColumn string
+	SortDir    string
+}
+
+// GetTableData fetches paginated, sorted data from any table.
+func (s *Service) GetTableData(ctx context.Context, tableKey string, page, pageSize int, sortColumn, sortDir string) (*TableDataResult, error) {
+	def, ok := Get(tableKey)
+	if !ok {
+		return nil, fmt.Errorf("unknown table: %s", tableKey)
+	}
+
+	// Get total count
+	totalRows, err := countTable(ctx, s.pool, tableKey)
+	if err != nil {
+		return nil, fmt.Errorf("count rows: %w", err)
+	}
+
+	// Calculate pagination
+	if page < 1 {
+		page = 1
+	}
+	totalPages := int((totalRows + int64(pageSize) - 1) / int64(pageSize))
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+	offset := (page - 1) * pageSize
+
+	// Validate sort column
+	displayColumns := def.Info.Columns
+	if sortColumn == "" || !containsColumn(displayColumns, sortColumn) {
+		sortColumn = displayColumns[0] // Default to first column
+	}
+	if sortDir != "asc" && sortDir != "desc" {
+		sortDir = "asc"
+	}
+
+	// Build query with DB column names
+	// Use DBColumn from FieldSpec if set, otherwise convert display name to snake_case
+	dbColumns := make([]string, len(displayColumns))
+	quotedCols := make([]string, len(displayColumns))
+	for i, col := range displayColumns {
+		// Look up DBColumn from FieldSpec
+		dbCol := ""
+		for _, spec := range def.FieldSpecs {
+			if spec.Name == col {
+				dbCol = spec.DBColumn
+				break
+			}
+		}
+		if dbCol == "" {
+			dbCol = toDBColumnName(col)
+		}
+		dbColumns[i] = dbCol
+		quotedCols[i] = quoteIdentifier(dbCol)
+	}
+
+	// Find DB column name for sort column
+	sortDBColumn := toDBColumnName(sortColumn)
+	for _, spec := range def.FieldSpecs {
+		if spec.Name == sortColumn && spec.DBColumn != "" {
+			sortDBColumn = spec.DBColumn
+			break
+		}
+	}
+
+	query := fmt.Sprintf(
+		"SELECT %s FROM %s ORDER BY %s %s LIMIT $1 OFFSET $2",
+		strings.Join(quotedCols, ", "),
+		quoteIdentifier(tableKey),
+		quoteIdentifier(sortDBColumn),
+		sortDir,
+	)
+
+	// Execute query
+	rows, err := s.pool.Query(ctx, query, pageSize, offset)
+	if err != nil {
+		return nil, fmt.Errorf("query rows: %w", err)
+	}
+	defer rows.Close()
+
+	// Collect results - map DB values back to display column names
+	var resultRows []TableRow
+	for rows.Next() {
+		values, err := rows.Values()
+		if err != nil {
+			return nil, fmt.Errorf("read row values: %w", err)
+		}
+
+		row := make(TableRow)
+		for i, col := range displayColumns {
+			row[col] = values[i]
+		}
+		resultRows = append(resultRows, row)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return &TableDataResult{
+		Rows:       resultRows,
+		TotalRows:  totalRows,
+		Page:       page,
+		PageSize:   pageSize,
+		TotalPages: totalPages,
+		SortColumn: sortColumn,
+		SortDir:    sortDir,
+	}, nil
+}
+
+// containsColumn checks if a column name exists in the list.
+func containsColumn(columns []string, target string) bool {
+	for _, col := range columns {
+		if strings.EqualFold(col, target) {
+			return true
+		}
+	}
+	return false
+}
+
+// quoteIdentifier quotes a SQL identifier to prevent injection.
+func quoteIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
+// toDBColumnName converts a display column name to a database column name.
+// "Transaction ID" -> "transaction_id"
+// "account_name" -> "account_name" (no change if already snake_case)
+func toDBColumnName(name string) string {
+	// Replace spaces with underscores and convert to lowercase
+	return strings.ToLower(strings.ReplaceAll(name, " ", "_"))
 }

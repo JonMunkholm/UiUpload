@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 
 	"github.com/JonMunkholm/TUI/internal/core"
 	"github.com/JonMunkholm/TUI/internal/web/templates"
@@ -281,4 +282,51 @@ func toResponse(result *core.UploadResult) UploadResultResponse {
 		Duration:   result.Duration.String(),
 		Error:      result.Error,
 	}
+}
+
+// handleTableView renders the table data view page.
+func (s *Server) handleTableView(w http.ResponseWriter, r *http.Request) {
+	tableKey := chi.URLParam(r, "tableKey")
+	if tableKey == "" {
+		writeError(w, http.StatusBadRequest, "missing table key")
+		return
+	}
+
+	def, ok := core.Get(tableKey)
+	if !ok {
+		writeError(w, http.StatusNotFound, "table not found")
+		return
+	}
+
+	// Parse query parameters
+	page := parseIntParam(r, "page", 1)
+	sort := r.URL.Query().Get("sort")
+	dir := r.URL.Query().Get("dir")
+
+	// Fetch data
+	data, err := s.service.GetTableData(r.Context(), tableKey, page, 50, sort, dir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Check if HTMX request (partial update) or full page load
+	if r.Header.Get("HX-Request") == "true" {
+		templates.TablePartial(tableKey, def.Info, data).Render(r.Context(), w)
+	} else {
+		templates.TableView(tableKey, def.Info, data).Render(r.Context(), w)
+	}
+}
+
+// parseIntParam parses an integer query parameter with a default value.
+func parseIntParam(r *http.Request, name string, defaultVal int) int {
+	val := r.URL.Query().Get(name)
+	if val == "" {
+		return defaultVal
+	}
+	i, err := strconv.Atoi(val)
+	if err != nil || i < 1 {
+		return defaultVal
+	}
+	return i
 }

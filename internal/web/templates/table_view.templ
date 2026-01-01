@@ -1,0 +1,224 @@
+package templates
+
+import (
+	"fmt"
+
+	"github.com/JonMunkholm/TUI/internal/core"
+)
+
+templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult) {
+	@Layout(info.Label + " - Data View") {
+		<!-- Header with back link -->
+		<div class="mb-6">
+			<a href="/" class="text-sm text-blue-600 hover:underline mb-2 inline-block">&larr; Back to Dashboard</a>
+			<h1 class="text-2xl font-semibold text-gray-900">{ info.Label }</h1>
+			<p class="text-sm text-gray-500">{ fmt.Sprintf("%d total rows", data.TotalRows) }</p>
+		</div>
+
+		<!-- Table container with id for HTMX swaps -->
+		<div id="table-container">
+			@TablePartial(tableKey, info, data)
+		</div>
+	}
+}
+
+templ TablePartial(tableKey string, info core.TableInfo, data *core.TableDataResult) {
+	if data.TotalRows == 0 {
+		<div class="text-center py-12 bg-white rounded-lg border border-gray-200">
+			<svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+			</svg>
+			<h3 class="mt-2 text-sm font-medium text-gray-900">No data yet</h3>
+			<p class="mt-1 text-sm text-gray-500">Upload a CSV file to populate this table.</p>
+			<div class="mt-6">
+				<a href="/" class="text-sm font-medium text-blue-600 hover:text-blue-500">
+					Go to Dashboard to upload &rarr;
+				</a>
+			</div>
+		</div>
+	} else {
+		<!-- Scrollable table wrapper -->
+		<div class="overflow-x-auto border border-gray-200 rounded-lg shadow-sm">
+			<table class="min-w-full divide-y divide-gray-200">
+				<thead class="bg-gray-50">
+					<tr>
+						for _, col := range info.Columns {
+							@SortableHeader(tableKey, col, data)
+						}
+					</tr>
+				</thead>
+				<tbody class="bg-white divide-y divide-gray-100">
+					for _, row := range data.Rows {
+						<tr class="hover:bg-blue-50 transition-colors">
+							for _, col := range info.Columns {
+								<td class="px-4 py-2 text-sm text-gray-700 whitespace-nowrap max-w-xs truncate" title={ formatCellTitle(row[col]) }>
+									{ formatCell(row[col]) }
+								</td>
+							}
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+
+		<!-- Pagination -->
+		@Pagination(tableKey, data)
+	}
+}
+
+templ SortableHeader(tableKey, col string, data *core.TableDataResult) {
+	<th
+		class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors select-none"
+		hx-get={ buildSortURL(tableKey, col, data) }
+		hx-target="#table-container"
+		hx-swap="innerHTML"
+		hx-push-url="true"
+	>
+		<div class="flex items-center gap-1">
+			<span>{ col }</span>
+			if data.SortColumn == col {
+				if data.SortDir == "asc" {
+					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path>
+					</svg>
+				} else {
+					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+					</svg>
+				}
+			}
+		</div>
+	</th>
+}
+
+templ Pagination(tableKey string, data *core.TableDataResult) {
+	<div class="flex items-center justify-between px-4 py-3 bg-white border-t border-gray-200 rounded-b-lg">
+		<div class="text-sm text-gray-500">
+			{ formatRange(data) }
+		</div>
+		<div class="flex items-center gap-2">
+			if data.Page > 1 {
+				<button
+					class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+					hx-get={ buildPageURL(tableKey, data.Page-1, data) }
+					hx-target="#table-container"
+					hx-swap="innerHTML"
+					hx-push-url="true"
+				>
+					Previous
+				</button>
+			}
+
+			<!-- Page numbers -->
+			for _, p := range pageNumbers(data) {
+				if p == data.Page {
+					<button
+						class="px-3 py-1.5 text-sm font-medium text-white bg-blue-600 border border-blue-600 rounded-md"
+						disabled
+					>
+						{ fmt.Sprintf("%d", p) }
+					</button>
+				} else if p == -1 {
+					<span class="px-2 text-gray-400">...</span>
+				} else {
+					<button
+						class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+						hx-get={ buildPageURL(tableKey, p, data) }
+						hx-target="#table-container"
+						hx-swap="innerHTML"
+						hx-push-url="true"
+					>
+						{ fmt.Sprintf("%d", p) }
+					</button>
+				}
+			}
+
+			if data.Page < data.TotalPages {
+				<button
+					class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+					hx-get={ buildPageURL(tableKey, data.Page+1, data) }
+					hx-target="#table-container"
+					hx-swap="innerHTML"
+					hx-push-url="true"
+				>
+					Next
+				</button>
+			}
+		</div>
+	</div>
+}
+
+// Helper functions
+
+// formatCell converts a cell value to a display string.
+func formatCell(v interface{}) string {
+	if v == nil {
+		return "-"
+	}
+	return fmt.Sprintf("%v", v)
+}
+
+// formatCellTitle returns the full value for tooltip.
+func formatCellTitle(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v", v)
+}
+
+// formatRange returns "Showing X-Y of Z" text.
+func formatRange(data *core.TableDataResult) string {
+	if data.TotalRows == 0 {
+		return "No results"
+	}
+	start := (data.Page-1)*data.PageSize + 1
+	end := start + len(data.Rows) - 1
+	return fmt.Sprintf("Showing %d-%d of %d", start, end, data.TotalRows)
+}
+
+// buildSortURL builds the URL for sorting by a column.
+func buildSortURL(tableKey, col string, data *core.TableDataResult) string {
+	dir := "asc"
+	if data.SortColumn == col && data.SortDir == "asc" {
+		dir = "desc"
+	}
+	return fmt.Sprintf("/table/%s?page=1&sort=%s&dir=%s", tableKey, col, dir)
+}
+
+// buildPageURL builds the URL for a specific page.
+func buildPageURL(tableKey string, page int, data *core.TableDataResult) string {
+	return fmt.Sprintf("/table/%s?page=%d&sort=%s&dir=%s", tableKey, page, data.SortColumn, data.SortDir)
+}
+
+// pageNumbers returns the page numbers to display in pagination.
+func pageNumbers(data *core.TableDataResult) []int {
+	if data.TotalPages <= 7 {
+		// Show all pages
+		pages := make([]int, data.TotalPages)
+		for i := range pages {
+			pages[i] = i + 1
+		}
+		return pages
+	}
+
+	// Show first, last, current, and neighbors with ellipsis
+	pages := []int{1}
+
+	if data.Page > 3 {
+		pages = append(pages, -1) // ellipsis
+	}
+
+	for p := data.Page - 1; p <= data.Page+1; p++ {
+		if p > 1 && p < data.TotalPages {
+			pages = append(pages, p)
+		}
+	}
+
+	if data.Page < data.TotalPages-2 {
+		pages = append(pages, -1) // ellipsis
+	}
+
+	pages = append(pages, data.TotalPages)
+
+	return pages
+}

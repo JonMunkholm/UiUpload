@@ -57,6 +57,7 @@ func (s *Server) setupRoutes() {
 
 	// Pages
 	s.router.Get("/", s.handleDashboard)
+	s.router.Get("/table/{tableKey}", s.handleTableView)
 
 	// API routes
 	s.router.Route("/api", func(r chi.Router) {
