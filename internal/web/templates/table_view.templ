@@ -87,6 +87,24 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 		<div id="table-container" data-table-key={ tableKey }>
 			@TablePartial(tableKey, info, data)
 		</div>
+
+		<!-- Row Details Modal -->
+		<div id="row-modal" class="hidden fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
+			<div class="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] flex flex-col">
+				<div class="flex items-center justify-between p-4 border-b">
+					<h3 class="text-lg font-semibold text-gray-900">Row Details</h3>
+					<button onclick="hideRowModal()" class="text-gray-400 hover:text-gray-600">
+						<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+						</svg>
+					</button>
+				</div>
+				<div id="row-modal-content" class="p-4 overflow-y-auto">
+					<!-- Content injected by JS -->
+				</div>
+			</div>
+		</div>
+
 		<!-- Initialize table features -->
 		<script>
 			document.addEventListener('DOMContentLoaded', function() {
@@ -125,7 +143,7 @@ templ TablePartial(tableKey string, info core.TableInfo, data *core.TableDataRes
 				</thead>
 				<tbody class="bg-white divide-y divide-gray-100">
 					for _, row := range data.Rows {
-						<tr class="hover:bg-blue-50 transition-colors">
+						<tr class="hover:bg-blue-50 transition-colors cursor-pointer" onclick="showRowDetails(this)">
 							for _, col := range info.Columns {
 								<td class="px-4 py-2 text-sm text-gray-700 whitespace-nowrap max-w-xs truncate" title={ formatCellTitle(row[col]) }>
 									{ formatCell(row[col]) }

@@ -468,6 +468,7 @@ function initKeyboardShortcuts() {
                 focusSearch();
                 break;
             case 'Escape':
+                hideRowModal();
                 closeColumnDropdown();
                 break;
             case 'c':
@@ -530,3 +531,46 @@ function goToNextPage() {
 function showShortcutsHelp() {
     showToast('Shortcuts: / search, Esc clear, c columns, e export, ←→ pages');
 }
+
+// ============================================================================
+// Row Details Modal
+// ============================================================================
+
+function showRowDetails(row) {
+    const columns = getAllColumns();
+    const cells = row.querySelectorAll('td');
+
+    let html = '<dl class="space-y-3">';
+    columns.forEach((col, i) => {
+        const value = cells[i]?.getAttribute('title') || cells[i]?.textContent?.trim() || '-';
+        html += `
+            <div class="grid grid-cols-3 gap-4 py-2 border-b border-gray-100 last:border-0">
+                <dt class="text-sm font-medium text-gray-500">${escapeHtml(col)}</dt>
+                <dd class="text-sm text-gray-900 col-span-2 break-words">${escapeHtml(value)}</dd>
+            </div>
+        `;
+    });
+    html += '</dl>';
+
+    document.getElementById('row-modal-content').innerHTML = html;
+    document.getElementById('row-modal').classList.remove('hidden');
+}
+
+function hideRowModal() {
+    const modal = document.getElementById('row-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Close row modal on outside click
+document.addEventListener('click', function(e) {
+    const modal = document.getElementById('row-modal');
+    if (modal && e.target === modal) {
+        hideRowModal();
+    }
+});
