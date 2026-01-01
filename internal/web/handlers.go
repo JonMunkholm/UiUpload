@@ -7,10 +7,12 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/JonMunkholm/TUI/internal/core"
 	"github.com/JonMunkholm/TUI/internal/web/templates"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // MaxUploadSize is the maximum allowed file size (100MB).
@@ -254,6 +256,114 @@ func (s *Server) handleDownloadTemplate(w http.ResponseWriter, r *http.Request) 
 	csvWriter := csv.NewWriter(w)
 	csvWriter.Write(def.Info.Columns)
 	csvWriter.Flush()
+}
+
+// handleExportData exports all table data as a CSV file.
+func (s *Server) handleExportData(w http.ResponseWriter, r *http.Request) {
+	tableKey := chi.URLParam(r, "tableKey")
+	if tableKey == "" {
+		writeError(w, http.StatusBadRequest, "missing table key")
+		return
+	}
+
+	def, ok := core.Get(tableKey)
+	if !ok {
+		writeError(w, http.StatusNotFound, "table not found")
+		return
+	}
+
+	// Fetch all data
+	data, err := s.service.GetAllTableData(r.Context(), tableKey)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Set CSV download headers with timestamp
+	timestamp := time.Now().Format("20060102_150405")
+	filename := fmt.Sprintf("%s_%s.csv", tableKey, timestamp)
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+
+	// Write CSV
+	csvWriter := csv.NewWriter(w)
+
+	// Header row (display names)
+	csvWriter.Write(def.Info.Columns)
+
+	// Data rows (formatted values)
+	for _, row := range data.Rows {
+		record := make([]string, len(def.Info.Columns))
+		for i, col := range def.Info.Columns {
+			record[i] = formatCellForExport(row[col])
+		}
+		csvWriter.Write(record)
+	}
+
+	csvWriter.Flush()
+}
+
+// formatCellForExport formats a cell value for CSV export.
+// Uses same logic as table view for consistency.
+func formatCellForExport(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+
+	switch val := v.(type) {
+	case pgtype.Numeric:
+		if !val.Valid {
+			return ""
+		}
+		f, err := val.Float64Value()
+		if err != nil || !f.Valid {
+			return ""
+		}
+		// Format with appropriate precision
+		if f.Float64 == float64(int64(f.Float64)) {
+			return fmt.Sprintf("%.0f", f.Float64)
+		}
+		return fmt.Sprintf("%.2f", f.Float64)
+
+	case pgtype.Date:
+		if !val.Valid {
+			return ""
+		}
+		return val.Time.Format("2006-01-02")
+
+	case pgtype.Text:
+		if !val.Valid {
+			return ""
+		}
+		return val.String
+
+	case pgtype.Bool:
+		if !val.Valid {
+			return ""
+		}
+		if val.Bool {
+			return "Yes"
+		}
+		return "No"
+
+	case time.Time:
+		if val.IsZero() {
+			return ""
+		}
+		return val.Format("2006-01-02")
+
+	case bool:
+		if val {
+			return "Yes"
+		}
+		return "No"
+
+	case string:
+		return val
+
+	default:
+		return fmt.Sprintf("%v", v)
+	}
 }
 
 // UploadResultResponse wraps the upload result for JSON encoding.

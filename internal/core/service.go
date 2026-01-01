@@ -516,6 +516,82 @@ func (s *Service) GetTableData(ctx context.Context, tableKey string, page, pageS
 	}, nil
 }
 
+// GetAllTableData fetches all data from a table without pagination.
+// Used for CSV export.
+func (s *Service) GetAllTableData(ctx context.Context, tableKey string) (*TableDataResult, error) {
+	def, ok := Get(tableKey)
+	if !ok {
+		return nil, fmt.Errorf("unknown table: %s", tableKey)
+	}
+
+	// Get total count
+	totalRows, err := countTable(ctx, s.pool, tableKey)
+	if err != nil {
+		return nil, fmt.Errorf("count rows: %w", err)
+	}
+
+	if totalRows == 0 {
+		return &TableDataResult{
+			Rows:      []TableRow{},
+			TotalRows: 0,
+		}, nil
+	}
+
+	// Build column names (same logic as GetTableData)
+	displayColumns := def.Info.Columns
+	quotedCols := make([]string, len(displayColumns))
+	for i, col := range displayColumns {
+		dbCol := ""
+		for _, spec := range def.FieldSpecs {
+			if spec.Name == col {
+				dbCol = spec.DBColumn
+				break
+			}
+		}
+		if dbCol == "" {
+			dbCol = toDBColumnName(col)
+		}
+		quotedCols[i] = quoteIdentifier(dbCol)
+	}
+
+	// Query ALL rows (no LIMIT/OFFSET), sorted by first column
+	query := fmt.Sprintf(
+		"SELECT %s FROM %s ORDER BY %s ASC",
+		strings.Join(quotedCols, ", "),
+		quoteIdentifier(tableKey),
+		quotedCols[0],
+	)
+
+	rows, err := s.pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("query rows: %w", err)
+	}
+	defer rows.Close()
+
+	var resultRows []TableRow
+	for rows.Next() {
+		values, err := rows.Values()
+		if err != nil {
+			return nil, fmt.Errorf("read row values: %w", err)
+		}
+
+		row := make(TableRow)
+		for i, col := range displayColumns {
+			row[col] = values[i]
+		}
+		resultRows = append(resultRows, row)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return &TableDataResult{
+		Rows:      resultRows,
+		TotalRows: totalRows,
+	}, nil
+}
+
 // containsColumn checks if a column name exists in the list.
 func containsColumn(columns []string, target string) bool {
 	for _, col := range columns {

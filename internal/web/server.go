@@ -67,6 +67,9 @@ func (s *Server) setupRoutes() {
 		// Template download
 		r.Get("/template/{tableKey}", s.handleDownloadTemplate)
 
+		// Data export
+		r.Get("/export/{tableKey}", s.handleExportData)
+
 		// Upload history
 		r.Get("/history/{tableKey}", s.handleUploadHistory)
 
