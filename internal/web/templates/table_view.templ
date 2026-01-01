@@ -257,6 +257,14 @@ templ TablePartial(tableKey string, info core.TableInfo, data *core.TableDataRes
 						</tr>
 					}
 				</tbody>
+				// Aggregations footer (only if numeric columns have data)
+				if hasAggregations(data.Aggregations) {
+					<tfoot class="bg-gray-50 border-t-2 border-gray-300">
+						@AggregationRow("Sum", info, data, "sum")
+						@AggregationRow("Avg", info, data, "avg")
+						@AggregationRow("Range", info, data, "minmax")
+					</tfoot>
+				}
 			</table>
 		</div>
 
@@ -988,4 +996,56 @@ func getColumnMeta(col string, meta []ColumnMeta) *ColumnMeta {
 		}
 	}
 	return nil
+}
+
+// hasAggregations checks if there are any aggregations to display.
+func hasAggregations(aggs core.Aggregations) bool {
+	return len(aggs) > 0
+}
+
+// getAggregation retrieves aggregation for a column, returns nil if not numeric.
+func getAggregation(col string, aggs core.Aggregations) *core.ColumnAggregation {
+	if aggs == nil {
+		return nil
+	}
+	return aggs[col]
+}
+
+// formatAggValue formats an aggregation value for display.
+func formatAggValue(v float64) string {
+	if v == float64(int64(v)) {
+		return fmt.Sprintf("%.0f", v)
+	}
+	return fmt.Sprintf("%.2f", v)
+}
+
+// AggregationRow renders a single row of aggregation values.
+templ AggregationRow(label string, info core.TableInfo, data *core.TableDataResult, aggType string) {
+	<tr class="text-xs text-gray-600">
+		if len(info.UniqueKey) > 0 {
+			<td class="px-4 py-1.5 font-medium text-gray-500 bg-gray-100">{ label }</td>
+		}
+		for _, col := range info.Columns {
+			<td class="px-4 py-1.5 text-right font-mono">
+				if agg := getAggregation(col, data.Aggregations); agg != nil {
+					switch aggType {
+						case "sum":
+							if agg.Sum != nil {
+								{ formatAggValue(*agg.Sum) }
+							}
+						case "avg":
+							if agg.Avg != nil {
+								{ formatAggValue(*agg.Avg) }
+							}
+						case "minmax":
+							if agg.Min != nil && agg.Max != nil {
+								<span class="text-gray-500">{ formatAggValue(*agg.Min) }</span>
+								<span class="text-gray-400 mx-1">–</span>
+								<span class="text-gray-500">{ formatAggValue(*agg.Max) }</span>
+							}
+					}
+				}
+			</td>
+		}
+	</tr>
 }

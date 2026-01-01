@@ -410,6 +410,7 @@ type TableDataResult struct {
 	SortDir       string
 	SearchQuery   string            // Current search term, if any
 	ActiveFilters map[string]string // Active column filters: column -> "op:value"
+	Aggregations  Aggregations      // Column aggregations for numeric columns
 }
 
 // buildFilterConditions generates WHERE clause conditions from filters.
@@ -634,7 +635,7 @@ func (s *Service) GetTableData(ctx context.Context, tableKey string, page, pageS
 		activeFilters[f.Column] = string(f.Operator) + ":" + f.Value
 	}
 
-	return &TableDataResult{
+	result := &TableDataResult{
 		Rows:          resultRows,
 		TotalRows:     totalRows,
 		Page:          page,
@@ -644,7 +645,148 @@ func (s *Service) GetTableData(ctx context.Context, tableKey string, page, pageS
 		SortDir:       sortDir,
 		SearchQuery:   searchQuery,
 		ActiveFilters: activeFilters,
-	}, nil
+	}
+
+	// Fetch aggregations for numeric columns
+	if aggs, err := s.GetColumnAggregations(ctx, tableKey, searchQuery, filters); err == nil {
+		result.Aggregations = aggs
+	}
+
+	return result, nil
+}
+
+// GetColumnAggregations calculates Sum, Avg, Min, Max for numeric columns.
+// Uses the same WHERE clause as GetTableData to aggregate filtered data.
+func (s *Service) GetColumnAggregations(ctx context.Context, tableKey string, searchQuery string, filters FilterSet) (Aggregations, error) {
+	def, ok := Get(tableKey)
+	if !ok {
+		return nil, fmt.Errorf("unknown table: %s", tableKey)
+	}
+
+	// Identify numeric columns from FieldSpecs
+	type numericCol struct {
+		name     string
+		dbColumn string
+	}
+	var numericCols []numericCol
+
+	for _, spec := range def.FieldSpecs {
+		if spec.Type == FieldNumeric {
+			dbCol := spec.DBColumn
+			if dbCol == "" {
+				dbCol = toDBColumnName(spec.Name)
+			}
+			numericCols = append(numericCols, numericCol{spec.Name, dbCol})
+		}
+	}
+
+	// Early return if no numeric columns
+	if len(numericCols) == 0 {
+		return Aggregations{}, nil
+	}
+
+	// Build WHERE clause (same logic as GetTableData)
+	var whereClause string
+	var queryArgs []interface{}
+	argIndex := 1
+	var allConditions []string
+
+	// Build search conditions (OR across text columns)
+	if searchQuery != "" {
+		var textConditions []string
+		for _, spec := range def.FieldSpecs {
+			if spec.Type == FieldText {
+				dbCol := spec.DBColumn
+				if dbCol == "" {
+					dbCol = toDBColumnName(spec.Name)
+				}
+				textConditions = append(textConditions, fmt.Sprintf("%s ILIKE $%d", quoteIdentifier(dbCol), argIndex))
+			}
+		}
+		if len(textConditions) > 0 {
+			allConditions = append(allConditions, "("+strings.Join(textConditions, " OR ")+")")
+			queryArgs = append(queryArgs, "%"+searchQuery+"%")
+			argIndex++
+		}
+	}
+
+	// Build filter conditions (AND together)
+	if len(filters.Filters) > 0 {
+		filterConditions, filterArgs, _ := buildFilterConditions(filters, argIndex)
+		allConditions = append(allConditions, filterConditions...)
+		queryArgs = append(queryArgs, filterArgs...)
+	}
+
+	// Combine all conditions with AND
+	if len(allConditions) > 0 {
+		whereClause = " WHERE " + strings.Join(allConditions, " AND ")
+	}
+
+	// Build aggregation SELECT expressions: SUM, AVG, MIN, MAX, COUNT per column
+	var selectExprs []string
+	for _, col := range numericCols {
+		quoted := quoteIdentifier(col.dbColumn)
+		selectExprs = append(selectExprs,
+			fmt.Sprintf("SUM(%s)", quoted),
+			fmt.Sprintf("AVG(%s)", quoted),
+			fmt.Sprintf("MIN(%s)", quoted),
+			fmt.Sprintf("MAX(%s)", quoted),
+			fmt.Sprintf("COUNT(%s)", quoted),
+		)
+	}
+
+	query := fmt.Sprintf("SELECT %s FROM %s%s",
+		strings.Join(selectExprs, ", "),
+		quoteIdentifier(tableKey),
+		whereClause,
+	)
+
+	row := s.pool.QueryRow(ctx, query, queryArgs...)
+
+	// Scan results - 5 values per column (sum, avg, min, max, count)
+	scanDest := make([]interface{}, len(numericCols)*5)
+	for i := range numericCols {
+		base := i * 5
+		scanDest[base] = new(*float64)   // Sum
+		scanDest[base+1] = new(*float64) // Avg
+		scanDest[base+2] = new(*float64) // Min
+		scanDest[base+3] = new(*float64) // Max
+		scanDest[base+4] = new(int64)    // Count
+	}
+
+	if err := row.Scan(scanDest...); err != nil {
+		return nil, fmt.Errorf("scan aggregations: %w", err)
+	}
+
+	// Build result map
+	result := make(Aggregations)
+	for i, col := range numericCols {
+		base := i * 5
+		agg := &ColumnAggregation{
+			Column: col.name,
+		}
+
+		// Extract values (handling NULL as nil)
+		if v := scanDest[base].(**float64); *v != nil {
+			agg.Sum = *v
+		}
+		if v := scanDest[base+1].(**float64); *v != nil {
+			agg.Avg = *v
+		}
+		if v := scanDest[base+2].(**float64); *v != nil {
+			agg.Min = *v
+		}
+		if v := scanDest[base+3].(**float64); *v != nil {
+			agg.Max = *v
+		}
+		if v := scanDest[base+4].(*int64); v != nil {
+			agg.Count = *v
+		}
+
+		result[col.name] = agg
+	}
+
+	return result, nil
 }
 
 // GetAllTableData fetches all data from a table without pagination.

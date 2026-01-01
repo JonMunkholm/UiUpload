@@ -157,3 +157,16 @@ type ColumnFilter struct {
 type FilterSet struct {
 	Filters []ColumnFilter
 }
+
+// ColumnAggregation holds aggregated values for a single numeric column.
+type ColumnAggregation struct {
+	Column string   // Display column name
+	Sum    *float64 // nil if no valid values
+	Avg    *float64
+	Min    *float64
+	Max    *float64
+	Count  int64 // Count of non-NULL values
+}
+
+// Aggregations maps column names to their aggregation results.
+type Aggregations map[string]*ColumnAggregation
