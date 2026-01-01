@@ -95,6 +95,32 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 							</div>
 						</div>
 					</div>
+					<!-- Metrics Dropdown -->
+					<div class="relative">
+						<button
+							type="button"
+							onclick="toggleMetricsDropdown()"
+							class="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+						>
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+							</svg>
+							Metrics
+						</button>
+						<div id="metrics-dropdown" class="hidden absolute right-0 z-10 mt-2 w-48 bg-white border border-gray-200 rounded-md shadow-lg">
+							<div class="p-2 border-b border-gray-100 flex gap-2">
+								<button type="button" onclick="selectAllMetrics()" class="text-xs text-blue-600 hover:underline">All</button>
+								<button type="button" onclick="clearAllMetrics()" class="text-xs text-blue-600 hover:underline">None</button>
+							</div>
+							<div class="p-2 space-y-3">
+								@MetricToggle("sum", "Sum")
+								@MetricToggle("avg", "Average")
+								@MetricToggle("min", "Min")
+								@MetricToggle("max", "Max")
+								@MetricToggle("count", "Count")
+							</div>
+						</div>
+					</div>
 					<!-- Export button -->
 					if data.TotalRows > 0 {
 						<a
@@ -176,6 +202,7 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 				initColumnToggle();
 				initViewsDropdown();
 				initKeyboardShortcuts();
+				initMetricsToggle();
 			});
 		</script>
 	}
@@ -259,10 +286,12 @@ templ TablePartial(tableKey string, info core.TableInfo, data *core.TableDataRes
 				</tbody>
 				// Aggregations footer (only if numeric columns have data)
 				if hasAggregations(data.Aggregations) {
-					<tfoot class="bg-gray-50 border-t-2 border-gray-300">
+					<tfoot id="aggregation-footer" class="bg-gray-50 border-t-2 border-gray-300">
 						@AggregationRow("Sum", info, data, "sum")
 						@AggregationRow("Avg", info, data, "avg")
-						@AggregationRow("Range", info, data, "minmax")
+						@AggregationRow("Min", info, data, "min")
+						@AggregationRow("Max", info, data, "max")
+						@AggregationRow("Count", info, data, "count")
 					</tfoot>
 				}
 			</table>
@@ -1021,7 +1050,7 @@ func formatAggValue(v float64) string {
 
 // AggregationRow renders a single row of aggregation values.
 templ AggregationRow(label string, info core.TableInfo, data *core.TableDataResult, aggType string) {
-	<tr class="text-xs text-gray-600">
+	<tr class="text-xs text-gray-600 aggregation-row" data-metric={ aggType }>
 		if len(info.UniqueKey) > 0 {
 			<td class="px-4 py-1.5 font-medium text-gray-500 bg-gray-100">{ label }</td>
 		}
@@ -1037,15 +1066,36 @@ templ AggregationRow(label string, info core.TableInfo, data *core.TableDataResu
 							if agg.Avg != nil {
 								{ formatAggValue(*agg.Avg) }
 							}
-						case "minmax":
-							if agg.Min != nil && agg.Max != nil {
-								<span class="text-gray-500">{ formatAggValue(*agg.Min) }</span>
-								<span class="text-gray-400 mx-1">–</span>
-								<span class="text-gray-500">{ formatAggValue(*agg.Max) }</span>
+						case "min":
+							if agg.Min != nil {
+								{ formatAggValue(*agg.Min) }
 							}
+						case "max":
+							if agg.Max != nil {
+								{ formatAggValue(*agg.Max) }
+							}
+						case "count":
+							{ fmt.Sprintf("%d", agg.Count) }
 					}
 				}
 			</td>
 		}
 	</tr>
+}
+
+// MetricToggle renders a toggle switch for a metric option.
+templ MetricToggle(value, label string) {
+	<label class="flex items-center justify-between cursor-pointer">
+		<span class="text-sm text-gray-700">{ label }</span>
+		<div class="relative">
+			<input
+				type="checkbox"
+				value={ value }
+				class="metrics-toggle sr-only peer"
+				onchange="applyMetricsSelection()"
+			/>
+			<div class="w-9 h-5 bg-gray-200 rounded-full peer peer-checked:bg-blue-600 transition-colors"></div>
+			<div class="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow peer-checked:translate-x-4 transition-transform"></div>
+		</div>
+	</label>
 }

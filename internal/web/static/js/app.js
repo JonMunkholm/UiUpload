@@ -2283,3 +2283,101 @@ function initTableNavigation() {
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', initTableNavigation);
+
+// ============================================================================
+// Aggregation Metrics Toggle
+// ============================================================================
+
+const DEFAULT_METRICS = ['sum'];  // Default: Sum only
+
+function getMetricsStorageKey(tableKey) {
+    return 'agg_metrics_' + tableKey;
+}
+
+function getSelectedMetrics(tableKey) {
+    const stored = localStorage.getItem(getMetricsStorageKey(tableKey));
+    if (stored) {
+        try {
+            return JSON.parse(stored);
+        } catch (e) {
+            return DEFAULT_METRICS;
+        }
+    }
+    return DEFAULT_METRICS;
+}
+
+function saveSelectedMetrics(tableKey, metrics) {
+    localStorage.setItem(getMetricsStorageKey(tableKey), JSON.stringify(metrics));
+}
+
+function toggleMetricsDropdown() {
+    const dropdown = document.getElementById('metrics-dropdown');
+    if (dropdown) {
+        dropdown.classList.toggle('hidden');
+    }
+}
+
+function initMetricsToggle() {
+    const container = document.getElementById('table-container');
+    if (!container) return;
+
+    const tableKey = container.dataset.tableKey;
+    if (!tableKey) return;
+
+    const selected = getSelectedMetrics(tableKey);
+
+    // Update toggle states
+    document.querySelectorAll('.metrics-toggle').forEach(toggle => {
+        toggle.checked = selected.includes(toggle.value);
+    });
+
+    // Apply visibility to rows
+    applyMetricsVisibility(selected);
+}
+
+function applyMetricsSelection() {
+    const container = document.getElementById('table-container');
+    if (!container) return;
+
+    const tableKey = container.dataset.tableKey;
+    const selected = Array.from(document.querySelectorAll('.metrics-toggle:checked'))
+        .map(cb => cb.value);
+
+    saveSelectedMetrics(tableKey, selected);
+    applyMetricsVisibility(selected);
+}
+
+function applyMetricsVisibility(selected) {
+    document.querySelectorAll('.aggregation-row').forEach(row => {
+        const metric = row.dataset.metric;
+        row.style.display = selected.includes(metric) ? '' : 'none';
+    });
+}
+
+function selectAllMetrics() {
+    document.querySelectorAll('.metrics-toggle').forEach(cb => cb.checked = true);
+    applyMetricsSelection();
+}
+
+function clearAllMetrics() {
+    document.querySelectorAll('.metrics-toggle').forEach(cb => cb.checked = false);
+    applyMetricsSelection();
+}
+
+// Close metrics dropdown on outside click
+document.addEventListener('click', function(e) {
+    const dropdown = document.getElementById('metrics-dropdown');
+    if (dropdown && !dropdown.classList.contains('hidden')) {
+        if (!e.target.closest('#metrics-dropdown') &&
+            !e.target.closest('[onclick*="toggleMetricsDropdown"]')) {
+            dropdown.classList.add('hidden');
+        }
+    }
+});
+
+// Reinitialize on HTMX swap
+document.body.addEventListener('htmx:afterSwap', function(e) {
+    if (e.detail.target.id === 'table-container') {
+        initMetricsToggle();
+    }
+});
