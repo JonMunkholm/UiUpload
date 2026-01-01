@@ -547,27 +547,14 @@ func (s *Service) GetTableData(ctx context.Context, tableKey string, page, pageS
 }
 
 // GetAllTableData fetches all data from a table without pagination.
-// Used for CSV export.
-func (s *Service) GetAllTableData(ctx context.Context, tableKey string) (*TableDataResult, error) {
+// Used for CSV export. Optionally filters by search query.
+func (s *Service) GetAllTableData(ctx context.Context, tableKey, searchQuery string) (*TableDataResult, error) {
 	def, ok := Get(tableKey)
 	if !ok {
 		return nil, fmt.Errorf("unknown table: %s", tableKey)
 	}
 
-	// Get total count
-	totalRows, err := countTable(ctx, s.pool, tableKey)
-	if err != nil {
-		return nil, fmt.Errorf("count rows: %w", err)
-	}
-
-	if totalRows == 0 {
-		return &TableDataResult{
-			Rows:      []TableRow{},
-			TotalRows: 0,
-		}, nil
-	}
-
-	// Build column names (same logic as GetTableData)
+	// Build column names
 	displayColumns := def.Info.Columns
 	quotedCols := make([]string, len(displayColumns))
 	for i, col := range displayColumns {
@@ -584,15 +571,53 @@ func (s *Service) GetAllTableData(ctx context.Context, tableKey string) (*TableD
 		quotedCols[i] = quoteIdentifier(dbCol)
 	}
 
+	// Build WHERE clause for search (only text columns)
+	var whereClause string
+	var queryArgs []interface{}
+
+	if searchQuery != "" {
+		var textConditions []string
+		for _, spec := range def.FieldSpecs {
+			if spec.Type == FieldText {
+				dbCol := spec.DBColumn
+				if dbCol == "" {
+					dbCol = toDBColumnName(spec.Name)
+				}
+				textConditions = append(textConditions, fmt.Sprintf("%s ILIKE $1", quoteIdentifier(dbCol)))
+			}
+		}
+		if len(textConditions) > 0 {
+			whereClause = " WHERE " + strings.Join(textConditions, " OR ")
+			queryArgs = append(queryArgs, "%"+searchQuery+"%")
+		}
+	}
+
+	// Get total count (with search filter)
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s%s", quoteIdentifier(tableKey), whereClause)
+	var totalRows int64
+	err := s.pool.QueryRow(ctx, countQuery, queryArgs...).Scan(&totalRows)
+	if err != nil {
+		return nil, fmt.Errorf("count rows: %w", err)
+	}
+
+	if totalRows == 0 {
+		return &TableDataResult{
+			Rows:        []TableRow{},
+			TotalRows:   0,
+			SearchQuery: searchQuery,
+		}, nil
+	}
+
 	// Query ALL rows (no LIMIT/OFFSET), sorted by first column
 	query := fmt.Sprintf(
-		"SELECT %s FROM %s ORDER BY %s ASC",
+		"SELECT %s FROM %s%s ORDER BY %s ASC",
 		strings.Join(quotedCols, ", "),
 		quoteIdentifier(tableKey),
+		whereClause,
 		quotedCols[0],
 	)
 
-	rows, err := s.pool.Query(ctx, query)
+	rows, err := s.pool.Query(ctx, query, queryArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("query rows: %w", err)
 	}
@@ -617,8 +642,9 @@ func (s *Service) GetAllTableData(ctx context.Context, tableKey string) (*TableD
 	}
 
 	return &TableDataResult{
-		Rows:      resultRows,
-		TotalRows: totalRows,
+		Rows:        resultRows,
+		TotalRows:   totalRows,
+		SearchQuery: searchQuery,
 	}, nil
 }
 

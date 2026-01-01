@@ -48,7 +48,7 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 					<!-- Export button -->
 					if data.TotalRows > 0 {
 						<a
-							href={ templ.SafeURL("/api/export/" + tableKey) }
+							href={ templ.SafeURL(buildExportURL(tableKey, data)) }
 							class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
 						>
 							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -358,6 +358,16 @@ func buildPageURL(tableKey string, page int, data *core.TableDataResult) string 
 // Resets to page 1 and preserves sort.
 func buildSearchURL(tableKey string, data *core.TableDataResult) string {
 	return fmt.Sprintf("/table/%s?page=1&sort=%s&dir=%s", tableKey, data.SortColumn, data.SortDir)
+}
+
+// buildExportURL builds the URL for CSV export.
+// Includes search filter if active.
+func buildExportURL(tableKey string, data *core.TableDataResult) string {
+	base := "/api/export/" + tableKey
+	if data.SearchQuery != "" {
+		return base + "?search=" + url.QueryEscape(data.SearchQuery)
+	}
+	return base
 }
 
 // pageNumbers returns the page numbers to display in pagination.

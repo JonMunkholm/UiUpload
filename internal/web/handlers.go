@@ -258,7 +258,8 @@ func (s *Server) handleDownloadTemplate(w http.ResponseWriter, r *http.Request) 
 	csvWriter.Flush()
 }
 
-// handleExportData exports all table data as a CSV file.
+// handleExportData exports table data as a CSV file.
+// Respects search filter if provided.
 func (s *Server) handleExportData(w http.ResponseWriter, r *http.Request) {
 	tableKey := chi.URLParam(r, "tableKey")
 	if tableKey == "" {
@@ -272,8 +273,11 @@ func (s *Server) handleExportData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch all data
-	data, err := s.service.GetAllTableData(r.Context(), tableKey)
+	// Parse search filter (if any)
+	search := r.URL.Query().Get("search")
+
+	// Fetch data (filtered if search provided)
+	data, err := s.service.GetAllTableData(r.Context(), tableKey, search)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

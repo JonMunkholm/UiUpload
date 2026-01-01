@@ -124,9 +124,9 @@ func TableView(tableKey string, info core.TableInfo, data *core.TableDataResult)
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var8 templ.SafeURL
-				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL("/api/export/" + tableKey))
+				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(buildExportURL(tableKey, data)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 51, Col: 54}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 51, Col: 59}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 				if templ_7745c5c3_Err != nil {
@@ -636,6 +636,16 @@ func buildPageURL(tableKey string, page int, data *core.TableDataResult) string 
 // Resets to page 1 and preserves sort.
 func buildSearchURL(tableKey string, data *core.TableDataResult) string {
 	return fmt.Sprintf("/table/%s?page=1&sort=%s&dir=%s", tableKey, data.SortColumn, data.SortDir)
+}
+
+// buildExportURL builds the URL for CSV export.
+// Includes search filter if active.
+func buildExportURL(tableKey string, data *core.TableDataResult) string {
+	base := "/api/export/" + tableKey
+	if data.SearchQuery != "" {
+		return base + "?search=" + url.QueryEscape(data.SearchQuery)
+	}
+	return base
 }
 
 // pageNumbers returns the page numbers to display in pagination.
