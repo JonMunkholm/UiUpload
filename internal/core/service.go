@@ -1121,6 +1121,13 @@ func (s *Service) DeleteRows(ctx context.Context, tableKey string, keys []string
 
 	var totalDeleted int64
 
+	// Record deletions in history before deleting
+	for _, key := range keys {
+		if rowData, err := s.getRowData(ctx, tableKey, key); err == nil && rowData != nil {
+			s.RecordRowDelete(ctx, tableKey, key, rowData)
+		}
+	}
+
 	if len(uniqueKey) == 1 {
 		// Single column key - use ANY for batch efficiency
 		query := fmt.Sprintf(
@@ -1244,11 +1251,17 @@ func (s *Service) UpdateCell(ctx context.Context, tableKey string, req UpdateCel
 		}
 	}
 
+	// Fetch old value before update (for history)
+	oldValue, _ := s.getCellValue(ctx, tableKey, def, uniqueKey, req.RowKey, dbCol)
+
 	// Build and execute UPDATE query
 	err := s.executeUpdateCell(ctx, tableKey, def, uniqueKey, req.RowKey, dbCol, req.Value, fieldSpec)
 	if err != nil {
 		return nil, fmt.Errorf("update failed: %w", err)
 	}
+
+	// Record in history (ignore errors - update already succeeded)
+	s.RecordCellEdit(ctx, tableKey, req.RowKey, req.Column, oldValue, req.Value)
 
 	return &UpdateCellResult{Success: true}, nil
 }

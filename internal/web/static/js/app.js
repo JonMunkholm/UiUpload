@@ -2528,3 +2528,55 @@ document.body.addEventListener('htmx:afterSwap', function(e) {
         initMetricsToggle();
     }
 });
+
+// ============================================================================
+// Edit History & Revert
+// ============================================================================
+
+// Handle revert button response
+function handleRevertResponse(event) {
+    const xhr = event.detail.xhr;
+    if (!xhr) return;
+
+    try {
+        const result = JSON.parse(xhr.responseText);
+
+        if (result.success) {
+            showToast('Change reverted');
+
+            // Refresh the table to show the restored data
+            const url = new URL(window.location.href);
+            htmx.ajax('GET', url.pathname + url.search, {
+                target: '#table-container',
+                swap: 'innerHTML'
+            });
+
+            // Refresh the history panel to show the new revert entry
+            refreshHistoryPanel();
+        } else if (result.rowDeleted) {
+            showToast('Cannot revert: row no longer exists', true);
+        } else if (result.error) {
+            showToast('Revert failed: ' + result.error, true);
+        } else {
+            showToast('Revert failed', true);
+        }
+    } catch (e) {
+        console.error('Error parsing revert response:', e);
+        showToast('Revert failed', true);
+    }
+}
+
+// Refresh the history panel content
+function refreshHistoryPanel() {
+    const panel = document.getElementById('edit-history-panel');
+    if (!panel) return;
+
+    const tableKey = getTableKey();
+    if (!tableKey) return;
+
+    // Force re-fetch by triggering HTMX
+    htmx.ajax('GET', `/api/edit-history/${tableKey}`, {
+        target: '#edit-history-panel',
+        swap: 'innerHTML'
+    });
+}

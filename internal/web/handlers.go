@@ -766,3 +766,48 @@ func (s *Server) handleUpdateCell(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
 }
+
+// handleGetEditHistory returns the edit history for a table.
+func (s *Server) handleGetEditHistory(w http.ResponseWriter, r *http.Request) {
+	tableKey := chi.URLParam(r, "tableKey")
+	if tableKey == "" {
+		writeError(w, http.StatusBadRequest, "missing table key")
+		return
+	}
+
+	entries, err := s.service.GetEditHistory(r.Context(), tableKey, 50)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Render history entries as HTML
+	component := templates.EditHistoryList(tableKey, entries)
+	component.Render(r.Context(), w)
+}
+
+// handleRevertChange reverts a specific history entry.
+func (s *Server) handleRevertChange(w http.ResponseWriter, r *http.Request) {
+	tableKey := chi.URLParam(r, "tableKey")
+	idStr := chi.URLParam(r, "id")
+
+	if tableKey == "" || idStr == "" {
+		writeError(w, http.StatusBadRequest, "missing parameters")
+		return
+	}
+
+	id, err := strconv.ParseInt(idStr, 10, 32)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+
+	result, err := s.service.RevertChange(r.Context(), tableKey, int32(id))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}

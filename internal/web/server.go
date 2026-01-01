@@ -88,6 +88,10 @@ func (s *Server) setupRoutes() {
 		// Update cell
 		r.Post("/update/{tableKey}", s.handleUpdateCell)
 
+		// Edit history
+		r.Get("/edit-history/{tableKey}", s.handleGetEditHistory)
+		r.Post("/revert/{tableKey}/{id}", s.handleRevertChange)
+
 		// Reset operations
 		r.Post("/reset/{tableKey}", s.handleReset)
 		r.Post("/reset", s.handleResetAll)

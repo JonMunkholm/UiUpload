@@ -35,6 +35,18 @@ type AnrokTransaction struct {
 	ReturnIds                 pgtype.Text    `json:"return_ids"`
 }
 
+type CellEditHistory struct {
+	ID         int32            `json:"id"`
+	TableKey   string           `json:"table_key"`
+	Action     string           `json:"action"`
+	RowKey     string           `json:"row_key"`
+	ColumnName pgtype.Text      `json:"column_name"`
+	OldValue   pgtype.Text      `json:"old_value"`
+	NewValue   pgtype.Text      `json:"new_value"`
+	RowData    []byte           `json:"row_data"`
+	CreatedAt  pgtype.Timestamp `json:"created_at"`
+}
+
 type CsvUpload struct {
 	Name         string           `json:"name"`
 	Action       string           `json:"action"`

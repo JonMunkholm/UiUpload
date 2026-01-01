@@ -159,6 +159,31 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 			@TablePartial(tableKey, info, data, columnMeta)
 		</div>
 
+		<!-- Edit History Panel -->
+		<details class="mt-4 border border-gray-200 rounded-lg dark:border-gray-700">
+			<summary class="px-4 py-3 cursor-pointer bg-gray-50 hover:bg-gray-100 rounded-lg font-medium text-gray-700 flex items-center gap-2 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-300">
+				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+				</svg>
+				Edit History
+			</summary>
+			<div
+				id="edit-history-panel"
+				class="p-4 border-t border-gray-200 dark:border-gray-700"
+				hx-get={ fmt.Sprintf("/api/edit-history/%s", tableKey) }
+				hx-trigger="toggle once from:closest details"
+				hx-swap="innerHTML"
+			>
+				<div class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+					<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+					</svg>
+					Loading history...
+				</div>
+			</div>
+		</details>
+
 		<!-- Delete Confirmation Modal -->
 		<div id="delete-modal" class="hidden fixed inset-0 bg-gray-500 bg-opacity-75 dark:bg-gray-900 dark:bg-opacity-80 flex items-center justify-center z-50">
 			<div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 dark:bg-gray-800">
@@ -1124,4 +1149,110 @@ templ MetricToggle(value, label string) {
 			<div class="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow peer-checked:translate-x-4 transition-transform"></div>
 		</div>
 	</label>
+}
+
+// EditHistoryEntry is the data structure passed from the service.
+type EditHistoryEntry struct {
+	ID         int32
+	TableKey   string
+	Action     string
+	RowKey     string
+	ColumnName string
+	OldValue   string
+	NewValue   string
+	CreatedAt  time.Time
+}
+
+// EditHistoryList renders the list of edit history entries.
+templ EditHistoryList(tableKey string, entries []core.EditHistoryEntry) {
+	if len(entries) == 0 {
+		<div class="text-sm text-gray-500 dark:text-gray-400 italic py-4 text-center">
+			No recent changes
+		</div>
+	} else {
+		<div class="space-y-3 max-h-64 overflow-y-auto">
+			for _, entry := range entries {
+				@EditHistoryItem(tableKey, entry)
+			}
+		</div>
+	}
+}
+
+// EditHistoryItem renders a single history entry.
+templ EditHistoryItem(tableKey string, entry core.EditHistoryEntry) {
+	<div class="text-sm border-l-2 border-blue-500 pl-3 py-2 dark:border-blue-400">
+		<div class="flex justify-between items-start">
+			<div>
+				if entry.Action == "edit" {
+					<span class="font-medium text-gray-900 dark:text-white">Changed "{ entry.ColumnName }"</span>
+				} else if entry.Action == "delete" {
+					<span class="font-medium text-red-600 dark:text-red-400">Deleted row</span>
+				} else if entry.Action == "restore" {
+					<span class="font-medium text-green-600 dark:text-green-400">Restored row</span>
+				}
+			</div>
+			<span class="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap ml-2">
+				{ formatTimeAgoShort(entry.CreatedAt) }
+			</span>
+		</div>
+		if entry.Action == "edit" {
+			<div class="text-xs text-gray-600 dark:text-gray-400 mt-1">
+				<span class="line-through">{ truncateValue(entry.OldValue) }</span>
+				<span class="mx-1">&rarr;</span>
+				<span class="font-medium">{ truncateValue(entry.NewValue) }</span>
+			</div>
+		}
+		if entry.Action == "edit" || entry.Action == "delete" {
+			<button
+				hx-post={ fmt.Sprintf("/api/revert/%s/%d", tableKey, entry.ID) }
+				hx-swap="none"
+				hx-on::after-request="handleRevertResponse(event)"
+				class="text-xs text-blue-600 hover:text-blue-800 hover:underline mt-1 dark:text-blue-400 dark:hover:text-blue-300"
+			>
+				Revert
+			</button>
+		}
+	</div>
+}
+
+// formatTimeAgoShort returns a short relative time string.
+func formatTimeAgoShort(t time.Time) string {
+	now := time.Now()
+	diff := now.Sub(t)
+
+	switch {
+	case diff < time.Minute:
+		return "just now"
+	case diff < time.Hour:
+		mins := int(diff.Minutes())
+		if mins == 1 {
+			return "1m ago"
+		}
+		return fmt.Sprintf("%dm ago", mins)
+	case diff < 24*time.Hour:
+		hours := int(diff.Hours())
+		if hours == 1 {
+			return "1h ago"
+		}
+		return fmt.Sprintf("%dh ago", hours)
+	case diff < 7*24*time.Hour:
+		days := int(diff.Hours() / 24)
+		if days == 1 {
+			return "yesterday"
+		}
+		return fmt.Sprintf("%dd ago", days)
+	default:
+		return t.Format("Jan 2")
+	}
+}
+
+// truncateValue truncates long values for display.
+func truncateValue(val string) string {
+	if val == "" {
+		return "(empty)"
+	}
+	if len(val) > 30 {
+		return val[:27] + "..."
+	}
+	return val
 }
