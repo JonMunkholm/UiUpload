@@ -10,8 +10,10 @@ import templruntime "github.com/a-h/templ/runtime"
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/JonMunkholm/TUI/internal/core"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func TableView(tableKey string, info core.TableInfo, data *core.TableDataResult) templ.Component {
@@ -54,7 +56,7 @@ func TableView(tableKey string, info core.TableInfo, data *core.TableDataResult)
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(info.Label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 14, Col: 64}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 16, Col: 64}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {
@@ -67,7 +69,7 @@ func TableView(tableKey string, info core.TableInfo, data *core.TableDataResult)
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d total rows", data.TotalRows))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 15, Col: 82}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 17, Col: 82}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -149,7 +151,7 @@ func TablePartial(tableKey string, info core.TableInfo, data *core.TableDataResu
 					var templ_7745c5c3_Var6 string
 					templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(formatCellTitle(row[col]))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 54, Col: 121}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 56, Col: 121}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 					if templ_7745c5c3_Err != nil {
@@ -162,7 +164,7 @@ func TablePartial(tableKey string, info core.TableInfo, data *core.TableDataResu
 					var templ_7745c5c3_Var7 string
 					templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(formatCell(row[col]))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 55, Col: 31}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 57, Col: 31}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 					if templ_7745c5c3_Err != nil {
@@ -219,7 +221,7 @@ func SortableHeader(tableKey, col string, data *core.TableDataResult) templ.Comp
 		var templ_7745c5c3_Var9 string
 		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(buildSortURL(tableKey, col, data))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 72, Col: 44}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 74, Col: 44}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 		if templ_7745c5c3_Err != nil {
@@ -232,7 +234,7 @@ func SortableHeader(tableKey, col string, data *core.TableDataResult) templ.Comp
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(col)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 78, Col: 14}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 80, Col: 14}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 		if templ_7745c5c3_Err != nil {
@@ -291,7 +293,7 @@ func Pagination(tableKey string, data *core.TableDataResult) templ.Component {
 		var templ_7745c5c3_Var12 string
 		templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(formatRange(data))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 97, Col: 22}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 99, Col: 22}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 		if templ_7745c5c3_Err != nil {
@@ -309,7 +311,7 @@ func Pagination(tableKey string, data *core.TableDataResult) templ.Component {
 			var templ_7745c5c3_Var13 string
 			templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(buildPageURL(tableKey, data.Page-1, data))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 103, Col: 55}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 105, Col: 55}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 			if templ_7745c5c3_Err != nil {
@@ -333,7 +335,7 @@ func Pagination(tableKey string, data *core.TableDataResult) templ.Component {
 				var templ_7745c5c3_Var14 string
 				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", p))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 119, Col: 28}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 121, Col: 28}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 				if templ_7745c5c3_Err != nil {
@@ -356,7 +358,7 @@ func Pagination(tableKey string, data *core.TableDataResult) templ.Component {
 				var templ_7745c5c3_Var15 string
 				templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(buildPageURL(tableKey, p, data))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 126, Col: 46}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 128, Col: 46}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 				if templ_7745c5c3_Err != nil {
@@ -369,7 +371,7 @@ func Pagination(tableKey string, data *core.TableDataResult) templ.Component {
 				var templ_7745c5c3_Var16 string
 				templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", p))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 131, Col: 28}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 133, Col: 28}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 				if templ_7745c5c3_Err != nil {
@@ -389,7 +391,7 @@ func Pagination(tableKey string, data *core.TableDataResult) templ.Component {
 			var templ_7745c5c3_Var17 string
 			templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(buildPageURL(tableKey, data.Page+1, data))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 139, Col: 55}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 141, Col: 55}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 			if templ_7745c5c3_Err != nil {
@@ -415,7 +417,60 @@ func formatCell(v interface{}) string {
 	if v == nil {
 		return "-"
 	}
-	return fmt.Sprintf("%v", v)
+
+	switch val := v.(type) {
+	case pgtype.Numeric:
+		if !val.Valid {
+			return "-"
+		}
+		f, err := val.Float64Value()
+		if err != nil || !f.Valid {
+			return "-"
+		}
+		return formatNumber(f.Float64)
+
+	case pgtype.Date:
+		if !val.Valid {
+			return "-"
+		}
+		return val.Time.Format("2006-01-02")
+
+	case pgtype.Text:
+		if !val.Valid {
+			return "-"
+		}
+		return val.String
+
+	case pgtype.Bool:
+		if !val.Valid {
+			return "-"
+		}
+		if val.Bool {
+			return "Yes"
+		}
+		return "No"
+
+	case time.Time:
+		if val.IsZero() {
+			return "-"
+		}
+		return val.Format("2006-01-02")
+
+	case bool:
+		if val {
+			return "Yes"
+		}
+		return "No"
+
+	case string:
+		if val == "" {
+			return "-"
+		}
+		return val
+
+	default:
+		return fmt.Sprintf("%v", v)
+	}
 }
 
 // formatCellTitle returns the full value for tooltip.
@@ -423,7 +478,62 @@ func formatCellTitle(v interface{}) string {
 	if v == nil {
 		return ""
 	}
-	return fmt.Sprintf("%v", v)
+
+	switch val := v.(type) {
+	case pgtype.Numeric:
+		if !val.Valid {
+			return ""
+		}
+		f, err := val.Float64Value()
+		if err != nil || !f.Valid {
+			return ""
+		}
+		return formatNumber(f.Float64)
+
+	case pgtype.Date:
+		if !val.Valid {
+			return ""
+		}
+		return val.Time.Format("2006-01-02")
+
+	case pgtype.Text:
+		if !val.Valid {
+			return ""
+		}
+		return val.String
+
+	case pgtype.Bool:
+		if !val.Valid {
+			return ""
+		}
+		if val.Bool {
+			return "Yes"
+		}
+		return "No"
+
+	case time.Time:
+		if val.IsZero() {
+			return ""
+		}
+		return val.Format("2006-01-02")
+
+	case bool:
+		if val {
+			return "Yes"
+		}
+		return "No"
+
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// formatNumber formats a float with appropriate precision.
+func formatNumber(f float64) string {
+	if f == float64(int64(f)) {
+		return fmt.Sprintf("%.0f", f)
+	}
+	return fmt.Sprintf("%.2f", f)
 }
 
 // formatRange returns "Showing X-Y of Z" text.

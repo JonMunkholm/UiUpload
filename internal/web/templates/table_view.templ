@@ -2,8 +2,10 @@ package templates
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/JonMunkholm/TUI/internal/core"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult) {
@@ -155,7 +157,60 @@ func formatCell(v interface{}) string {
 	if v == nil {
 		return "-"
 	}
-	return fmt.Sprintf("%v", v)
+
+	switch val := v.(type) {
+	case pgtype.Numeric:
+		if !val.Valid {
+			return "-"
+		}
+		f, err := val.Float64Value()
+		if err != nil || !f.Valid {
+			return "-"
+		}
+		return formatNumber(f.Float64)
+
+	case pgtype.Date:
+		if !val.Valid {
+			return "-"
+		}
+		return val.Time.Format("2006-01-02")
+
+	case pgtype.Text:
+		if !val.Valid {
+			return "-"
+		}
+		return val.String
+
+	case pgtype.Bool:
+		if !val.Valid {
+			return "-"
+		}
+		if val.Bool {
+			return "Yes"
+		}
+		return "No"
+
+	case time.Time:
+		if val.IsZero() {
+			return "-"
+		}
+		return val.Format("2006-01-02")
+
+	case bool:
+		if val {
+			return "Yes"
+		}
+		return "No"
+
+	case string:
+		if val == "" {
+			return "-"
+		}
+		return val
+
+	default:
+		return fmt.Sprintf("%v", v)
+	}
 }
 
 // formatCellTitle returns the full value for tooltip.
@@ -163,7 +218,62 @@ func formatCellTitle(v interface{}) string {
 	if v == nil {
 		return ""
 	}
-	return fmt.Sprintf("%v", v)
+
+	switch val := v.(type) {
+	case pgtype.Numeric:
+		if !val.Valid {
+			return ""
+		}
+		f, err := val.Float64Value()
+		if err != nil || !f.Valid {
+			return ""
+		}
+		return formatNumber(f.Float64)
+
+	case pgtype.Date:
+		if !val.Valid {
+			return ""
+		}
+		return val.Time.Format("2006-01-02")
+
+	case pgtype.Text:
+		if !val.Valid {
+			return ""
+		}
+		return val.String
+
+	case pgtype.Bool:
+		if !val.Valid {
+			return ""
+		}
+		if val.Bool {
+			return "Yes"
+		}
+		return "No"
+
+	case time.Time:
+		if val.IsZero() {
+			return ""
+		}
+		return val.Format("2006-01-02")
+
+	case bool:
+		if val {
+			return "Yes"
+		}
+		return "No"
+
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// formatNumber formats a float with appropriate precision.
+func formatNumber(f float64) string {
+	if f == float64(int64(f)) {
+		return fmt.Sprintf("%.0f", f)
+	}
+	return fmt.Sprintf("%.2f", f)
 }
 
 // formatRange returns "Showing X-Y of Z" text.
