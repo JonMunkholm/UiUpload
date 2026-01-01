@@ -213,26 +213,38 @@ func (s *Service) processRecords(ctx context.Context, upload *activeUpload, def 
 		return result
 	}
 
-	// Find header row
-	headerIdx := findHeaderInRecords(records, def.Info.Columns)
-	if headerIdx < 0 {
-		result.Error = fmt.Sprintf("header not found (expected: %v)", def.Info.Columns)
-		upload.Progress.Phase = PhaseFailed
-		upload.Progress.Error = result.Error
-		upload.notifyProgress()
-		return result
-	}
+	var csvHeaderIdx HeaderIndex
+	var dataRows [][]string
+	var headerRowIndex int
 
-	headerRow := records[headerIdx]
-	dataRows := records[headerIdx+1:]
+	// Check if user provided explicit column mapping
+	if upload.Mapping != nil && len(upload.Mapping) > 0 {
+		// User provided mapping - use first row as header, rest as data
+		headerRow := records[0]
+		dataRows = records[1:]
+		headerRowIndex = 0
+		csvHeaderIdx = buildMappedHeaderIndex(upload.Mapping, headerRow)
+	} else {
+		// Existing behavior: auto-detect header row
+		headerIdx := findHeaderInRecords(records, def.Info.Columns)
+		if headerIdx < 0 {
+			result.Error = fmt.Sprintf("header not found (expected: %v)", def.Info.Columns)
+			upload.Progress.Phase = PhaseFailed
+			upload.Progress.Error = result.Error
+			upload.notifyProgress()
+			return result
+		}
+		headerRowIndex = headerIdx
+		headerRow := records[headerIdx]
+		dataRows = records[headerIdx+1:]
+		csvHeaderIdx = MakeHeaderIndex(headerRow)
+	}
 
 	if len(dataRows) == 0 {
 		result.Error = "no data rows after header"
 		return result
 	}
 
-	// Build header index
-	csvHeaderIdx := MakeHeaderIndex(headerRow)
 	expectedCols := len(def.Info.Columns)
 
 	upload.Progress.Phase = PhaseInserting
@@ -254,7 +266,7 @@ func (s *Service) processRecords(ctx context.Context, upload *activeUpload, def 
 	var failedRows []FailedRow
 
 	for i, row := range dataRows {
-		lineNum := headerIdx + i + 2 // 1-indexed, after header
+		lineNum := headerRowIndex + i + 2 // 1-indexed, after header
 
 		// Check for cancellation periodically
 		if i%ContextCheckInterval == 0 {
@@ -441,6 +453,19 @@ func parseCSV(data []byte) ([][]string, error) {
 	r.FieldsPerRecord = -1
 	r.LazyQuotes = true
 	return r.ReadAll()
+}
+
+// buildMappedHeaderIndex creates a HeaderIndex from user-provided column mapping.
+// mapping: expected column name -> CSV column index
+// csvHeader: actual CSV header row (used for bounds checking)
+func buildMappedHeaderIndex(mapping map[string]int, csvHeader []string) HeaderIndex {
+	idx := make(HeaderIndex, len(mapping))
+	for expectedCol, csvIdx := range mapping {
+		if csvIdx >= 0 && csvIdx < len(csvHeader) {
+			idx[strings.ToLower(expectedCol)] = csvIdx
+		}
+	}
+	return idx
 }
 
 func findHeaderInRecords(records [][]string, required []string) int {

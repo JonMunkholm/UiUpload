@@ -92,8 +92,17 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse optional column mapping
+	var mapping map[string]int
+	if mappingJSON := r.FormValue("mapping"); mappingJSON != "" {
+		if err := json.Unmarshal([]byte(mappingJSON), &mapping); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid mapping format")
+			return
+		}
+	}
+
 	// Start upload
-	uploadID, err := s.service.StartUpload(r.Context(), tableKey, header.Filename, data)
+	uploadID, err := s.service.StartUpload(r.Context(), tableKey, header.Filename, data, mapping)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

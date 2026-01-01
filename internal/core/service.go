@@ -39,6 +39,7 @@ type activeUpload struct {
 	Done       chan struct{}
 	Listeners  []chan UploadProgress
 	ListenerMu sync.Mutex
+	Mapping    map[string]int // User-provided column mapping: expected column -> CSV index
 }
 
 // NewService creates a new Service instance.
@@ -80,7 +81,8 @@ func (s *Service) ListTablesByGroup() map[string][]TableInfo {
 
 // StartUpload begins an asynchronous upload operation.
 // Returns the upload ID immediately. Use SubscribeProgress to get updates.
-func (s *Service) StartUpload(ctx context.Context, tableKey string, fileName string, fileData []byte) (string, error) {
+// If mapping is non-nil, it maps expected column names to CSV column indices.
+func (s *Service) StartUpload(ctx context.Context, tableKey string, fileName string, fileData []byte, mapping map[string]int) (string, error) {
 	def, ok := Get(tableKey)
 	if !ok {
 		return "", fmt.Errorf("unknown table: %s", tableKey)
@@ -104,6 +106,7 @@ func (s *Service) StartUpload(ctx context.Context, tableKey string, fileName str
 		},
 		Done:      make(chan struct{}),
 		Listeners: make([]chan UploadProgress, 0),
+		Mapping:   mapping,
 	}
 
 	s.mu.Lock()

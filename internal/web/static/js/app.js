@@ -577,7 +577,7 @@ document.addEventListener('click', function(e) {
 });
 
 // ============================================================================
-// CSV Preview
+// CSV Preview & Column Mapping
 // ============================================================================
 
 let currentPreviewForm = null;
@@ -636,9 +636,151 @@ function parseCSVLine(line) {
     return result;
 }
 
+// Levenshtein distance for fuzzy matching
+function levenshtein(a, b) {
+    const matrix = Array(b.length + 1).fill().map(() => Array(a.length + 1).fill(0));
+    for (let i = 0; i <= a.length; i++) matrix[0][i] = i;
+    for (let j = 0; j <= b.length; j++) matrix[j][0] = j;
+    for (let j = 1; j <= b.length; j++) {
+        for (let i = 1; i <= a.length; i++) {
+            const cost = a[i-1] === b[j-1] ? 0 : 1;
+            matrix[j][i] = Math.min(
+                matrix[j][i-1] + 1,
+                matrix[j-1][i] + 1,
+                matrix[j-1][i-1] + cost
+            );
+        }
+    }
+    return matrix[b.length][a.length];
+}
+
+// Find best matching CSV column for an expected column
+function suggestMapping(expected, csvHeaders) {
+    const expNorm = expected.toLowerCase().replace(/[_\s]+/g, '');
+    let best = { index: -1, score: Infinity };
+
+    csvHeaders.forEach((h, i) => {
+        const hNorm = h.toLowerCase().replace(/[_\s]+/g, '');
+
+        // Exact match (ignoring case/spaces/underscores)
+        if (expNorm === hNorm) {
+            best = { index: i, score: 0 };
+            return;
+        }
+
+        // Contains match
+        if (hNorm.includes(expNorm) || expNorm.includes(hNorm)) {
+            const score = Math.abs(hNorm.length - expNorm.length) * 0.5;
+            if (score < best.score) best = { index: i, score };
+            return;
+        }
+
+        // Levenshtein distance
+        const dist = levenshtein(expNorm, hNorm);
+        const norm = dist / Math.max(expNorm.length, hNorm.length) * 10;
+        if (norm < best.score) best = { index: i, score: norm };
+    });
+
+    return best.score <= 5 ? best.index : -1;
+}
+
+// Build auto-mapping suggestions
+function buildAutoMapping(expected, csvHeaders) {
+    const mapping = {};
+    const used = new Set();
+
+    expected.forEach(exp => {
+        const idx = suggestMapping(exp, csvHeaders);
+        if (idx >= 0 && !used.has(idx)) {
+            mapping[exp] = idx;
+            used.add(idx);
+        } else {
+            mapping[exp] = -1;
+        }
+    });
+
+    return mapping;
+}
+
+// Render mapping UI with dropdowns
+function renderMappingUI(expected, csvHeaders, autoMapping) {
+    return `
+        <div class="space-y-2">
+            <div class="text-sm font-medium text-gray-700 mb-3">Map CSV columns to expected fields:</div>
+            ${expected.map(exp => {
+                const suggested = autoMapping[exp];
+                return `
+                <div class="flex items-center gap-3">
+                    <span class="w-1/3 text-sm text-gray-600 text-right truncate" title="${escapeHtml(exp)}">${escapeHtml(exp)}</span>
+                    <span class="text-gray-400">→</span>
+                    <select class="mapping-select flex-1 text-sm border border-gray-300 rounded px-2 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" data-expected="${escapeHtml(exp)}">
+                        <option value="-1">(skip - leave empty)</option>
+                        ${csvHeaders.map((h, i) =>
+                            `<option value="${i}" ${i === suggested ? 'selected' : ''}>${escapeHtml(h)}</option>`
+                        ).join('')}
+                    </select>
+                    ${suggested >= 0 ? '<span class="text-green-500 text-sm">✓</span>' : '<span class="text-gray-300 text-sm">–</span>'}
+                </div>`;
+            }).join('')}
+        </div>
+    `;
+}
+
+// Collect current mapping from UI
+function collectMapping() {
+    const mapping = {};
+    document.querySelectorAll('.mapping-select').forEach(select => {
+        const expected = select.dataset.expected;
+        const csvIdx = parseInt(select.value, 10);
+        if (csvIdx >= 0) {
+            mapping[expected] = csvIdx;
+        }
+    });
+    return Object.keys(mapping).length > 0 ? mapping : null;
+}
+
 function renderPreview(tableLabel, expected, actual, rows, totalRows, fileName) {
     const columnsMatch = expected.length === actual.length &&
-        expected.every((col, i) => col === actual[i]);
+        expected.every((col, i) => col.toLowerCase() === actual[i].toLowerCase());
+
+    let columnSection;
+    if (columnsMatch) {
+        // Columns match - show simple green checkmark
+        columnSection = `
+            <div class="mb-4 p-3 rounded-lg bg-green-50 border border-green-200">
+                <div class="flex items-center gap-2 mb-2">
+                    <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <span class="text-sm font-medium text-green-800">Columns match</span>
+                </div>
+                <div class="grid grid-cols-2 gap-4 text-xs">
+                    <div>
+                        <div class="font-medium text-gray-600 mb-1">Expected (${expected.length})</div>
+                        ${expected.map(c => `<div class="text-gray-700">${escapeHtml(c)}</div>`).join('')}
+                    </div>
+                    <div>
+                        <div class="font-medium text-gray-600 mb-1">Found in CSV (${actual.length})</div>
+                        ${actual.map(c => `<div class="text-gray-700">${escapeHtml(c)}</div>`).join('')}
+                    </div>
+                </div>
+            </div>
+        `;
+    } else {
+        // Columns don't match - show mapping UI
+        const autoMapping = buildAutoMapping(expected, actual);
+        columnSection = `
+            <div class="mb-4 p-3 rounded-lg bg-yellow-50 border border-yellow-200">
+                <div class="flex items-center gap-2 mb-3">
+                    <svg class="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                    </svg>
+                    <span class="text-sm font-medium text-yellow-800">Column mismatch - map columns below</span>
+                </div>
+                ${renderMappingUI(expected, actual, autoMapping)}
+            </div>
+        `;
+    }
 
     let html = `
         <div class="mb-4">
@@ -647,24 +789,7 @@ function renderPreview(tableLabel, expected, actual, rows, totalRows, fileName) 
             <div class="text-sm text-gray-600">Rows: <span class="font-medium">${totalRows}</span></div>
         </div>
 
-        <div class="mb-4 p-3 rounded-lg ${columnsMatch ? 'bg-green-50 border border-green-200' : 'bg-yellow-50 border border-yellow-200'}">
-            <div class="flex items-center gap-2 mb-2">
-                ${columnsMatch
-                    ? '<svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg><span class="text-sm font-medium text-green-800">Columns match</span>'
-                    : '<svg class="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg><span class="text-sm font-medium text-yellow-800">Column mismatch</span>'
-                }
-            </div>
-            <div class="grid grid-cols-2 gap-4 text-xs">
-                <div>
-                    <div class="font-medium text-gray-600 mb-1">Expected (${expected.length})</div>
-                    ${expected.map(c => `<div class="text-gray-700">${escapeHtml(c)}</div>`).join('')}
-                </div>
-                <div>
-                    <div class="font-medium text-gray-600 mb-1">Found in CSV (${actual.length})</div>
-                    ${actual.map(c => `<div class="text-gray-700">${escapeHtml(c)}</div>`).join('')}
-                </div>
-            </div>
-        </div>
+        ${columnSection}
 
         <div class="text-sm font-medium text-gray-700 mb-2">Preview (first ${rows.length} rows)</div>
         <div class="overflow-x-auto border rounded-lg">
@@ -691,6 +816,20 @@ function renderPreview(tableLabel, expected, actual, rows, totalRows, fileName) 
 
 function confirmUpload() {
     if (currentPreviewForm) {
+        // Collect mapping if present
+        const mapping = collectMapping();
+        if (mapping) {
+            // Add or update hidden input with mapping JSON
+            let input = currentPreviewForm.querySelector('input[name="mapping"]');
+            if (!input) {
+                input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'mapping';
+                currentPreviewForm.appendChild(input);
+            }
+            input.value = JSON.stringify(mapping);
+        }
+
         document.getElementById('preview-modal').classList.add('hidden');
         htmx.trigger(currentPreviewForm, 'upload');
         currentPreviewForm = null;
@@ -702,6 +841,9 @@ function cancelPreview() {
     if (currentPreviewForm) {
         const input = currentPreviewForm.querySelector('input[type="file"]');
         if (input) input.value = '';
+        // Remove mapping input if present
+        const mappingInput = currentPreviewForm.querySelector('input[name="mapping"]');
+        if (mappingInput) mappingInput.remove();
         currentPreviewForm = null;
     }
 }
