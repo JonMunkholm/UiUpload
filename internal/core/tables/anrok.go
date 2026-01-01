@@ -18,6 +18,7 @@ func registerAnrokTransactions() {
 			Group:     "Anrok",
 			Label:     "Transactions",
 			Directory: "Transactions",
+			UniqueKey: []string{"Transaction ID"},
 		},
 		FieldSpecs: []core.FieldSpec{
 			{Name: "Transaction ID", DBColumn: "transaction_id", Type: core.FieldText, Required: false, AllowEmpty: true},

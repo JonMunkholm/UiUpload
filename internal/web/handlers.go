@@ -454,3 +454,43 @@ func parseIntParam(r *http.Request, name string, defaultVal int) int {
 	}
 	return i
 }
+
+// handleCheckDuplicates checks if provided keys already exist in the database.
+func (s *Server) handleCheckDuplicates(w http.ResponseWriter, r *http.Request) {
+	tableKey := chi.URLParam(r, "tableKey")
+	if tableKey == "" {
+		writeError(w, http.StatusBadRequest, "missing table key")
+		return
+	}
+
+	// Parse request body
+	var req struct {
+		Keys []string `json:"keys"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if len(req.Keys) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"existing": []string{},
+			"count":    0,
+		})
+		return
+	}
+
+	// Check for duplicates
+	existing, err := s.service.CheckDuplicates(r.Context(), tableKey, req.Keys)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"existing": existing,
+		"count":    len(existing),
+	})
+}

@@ -132,6 +132,7 @@ templ TableCard(data TableCardData) {
 			hx-on::before-request="showUploadModal()"
 			hx-on::after-request="handleUploadResponse(event)"
 			data-columns={ toJSON(data.Info.Columns) }
+			data-unique-key={ toJSON(data.Info.UniqueKey) }
 			data-table-label={ data.Info.Label }
 		>
 			<input type="file" name="file" accept=".csv" class="hidden" id={ "file-" + data.Info.Key } onchange="showPreview(this)"/>

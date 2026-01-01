@@ -21,6 +21,7 @@ func registerSfdcCustomers() {
 			Group:     "SFDC",
 			Label:     "Customers",
 			Directory: "Customers",
+			UniqueKey: []string{"account_id_casesafe"},
 		},
 		FieldSpecs: []core.FieldSpec{
 			{Name: "account_id_casesafe", Type: core.FieldText, Required: false, AllowEmpty: true},
@@ -52,6 +53,7 @@ func registerSfdcPriceBook() {
 			Group:     "SFDC",
 			Label:     "Price Book",
 			Directory: "PriceBook",
+			UniqueKey: []string{"product_id_casesafe"},
 		},
 		FieldSpecs: []core.FieldSpec{
 			{Name: "price_book_name", Type: core.FieldText, Required: false, AllowEmpty: true},
@@ -85,6 +87,7 @@ func registerSfdcOppDetail() {
 			Group:     "SFDC",
 			Label:     "Opp Detail",
 			Directory: "OppDetail",
+			UniqueKey: []string{"opportunity_product_casesafe_id"},
 		},
 		FieldSpecs: []core.FieldSpec{
 			{Name: "opportunity_id", Type: core.FieldText, Required: false, AllowEmpty: true},

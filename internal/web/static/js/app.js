@@ -588,32 +588,39 @@ function showPreview(input) {
     const file = input.files[0];
     const form = input.closest('form');
     const expectedColumns = JSON.parse(form.dataset.columns || '[]');
+    const uniqueKey = JSON.parse(form.dataset.uniqueKey || '[]');
     const tableLabel = form.dataset.tableLabel || 'Table';
+    const tableKey = form.id.replace('upload-form-', '');
 
     currentPreviewForm = form;
 
     const reader = new FileReader();
     reader.onload = function(e) {
         const text = e.target.result;
-        const { headers, rows, totalRows } = parseCSV(text);
-        renderPreview(tableLabel, expectedColumns, headers, rows, totalRows, file.name);
+        const { headers, rows, allRows, totalRows } = parseCSV(text);
+        renderPreview(tableLabel, tableKey, expectedColumns, uniqueKey, headers, rows, allRows, totalRows, file.name);
     };
     reader.readAsText(file);
 }
 
-function parseCSV(text) {
+function parseCSV(text, previewOnly = false) {
     const lines = text.trim().split('\n');
-    if (lines.length === 0) return { headers: [], rows: [], totalRows: 0 };
+    if (lines.length === 0) return { headers: [], rows: [], allRows: [], totalRows: 0 };
 
     const headers = parseCSVLine(lines[0]);
     const rows = [];
+    const allRows = [];
     const previewCount = Math.min(5, lines.length - 1);
 
-    for (let i = 1; i <= previewCount; i++) {
-        if (lines[i]) rows.push(parseCSVLine(lines[i]));
+    for (let i = 1; i < lines.length; i++) {
+        if (lines[i]) {
+            const parsed = parseCSVLine(lines[i]);
+            allRows.push({ data: parsed, lineNumber: i + 1 });
+            if (i <= previewCount) rows.push(parsed);
+        }
     }
 
-    return { headers, rows, totalRows: lines.length - 1 };
+    return { headers, rows, allRows, totalRows: lines.length - 1 };
 }
 
 function parseCSVLine(line) {
@@ -739,7 +746,7 @@ function collectMapping() {
     return Object.keys(mapping).length > 0 ? mapping : null;
 }
 
-function renderPreview(tableLabel, expected, actual, rows, totalRows, fileName) {
+function renderPreview(tableLabel, tableKey, expected, uniqueKey, actual, rows, allRows, totalRows, fileName) {
     const columnsMatch = expected.length === actual.length &&
         expected.every((col, i) => col.toLowerCase() === actual[i].toLowerCase());
 
@@ -782,6 +789,20 @@ function renderPreview(tableLabel, expected, actual, rows, totalRows, fileName) 
         `;
     }
 
+    // Detect CSV duplicates
+    let csvDuplicatesSection = '';
+    let dbDuplicatesSection = '';
+    const hasUniqueKey = uniqueKey && uniqueKey.length > 0;
+
+    if (hasUniqueKey) {
+        const { duplicates, keyColsMissing } = detectCSVDuplicates(actual, allRows, uniqueKey);
+        if (!keyColsMissing) {
+            csvDuplicatesSection = formatCSVDuplicatesWarning(duplicates, uniqueKey);
+            // Show loading state for DB check
+            dbDuplicatesSection = formatDBDuplicatesWarning([], uniqueKey, true);
+        }
+    }
+
     let html = `
         <div class="mb-4">
             <div class="text-sm text-gray-600">File: <span class="font-medium">${escapeHtml(fileName)}</span></div>
@@ -790,6 +811,8 @@ function renderPreview(tableLabel, expected, actual, rows, totalRows, fileName) 
         </div>
 
         ${columnSection}
+        ${csvDuplicatesSection}
+        ${dbDuplicatesSection}
 
         <div class="text-sm font-medium text-gray-700 mb-2">Preview (first ${rows.length} rows)</div>
         <div class="overflow-x-auto border rounded-lg">
@@ -812,6 +835,29 @@ function renderPreview(tableLabel, expected, actual, rows, totalRows, fileName) 
 
     document.getElementById('preview-content').innerHTML = html;
     document.getElementById('preview-modal').classList.remove('hidden');
+
+    // Start async database check if we have unique keys
+    if (hasUniqueKey) {
+        const keys = extractAllKeys(actual, allRows, uniqueKey);
+        if (keys.length > 0) {
+            checkDatabaseDuplicates(tableKey, keys).then(result => {
+                const section = document.getElementById('db-duplicates-section');
+                if (section) {
+                    section.outerHTML = formatDBDuplicatesWarning(
+                        result.existing,
+                        uniqueKey,
+                        false,
+                        result.error,
+                        result.skipped
+                    );
+                }
+            });
+        } else {
+            // No valid keys to check, remove loading state
+            const section = document.getElementById('db-duplicates-section');
+            if (section) section.remove();
+        }
+    }
 }
 
 function confirmUpload() {
@@ -855,3 +901,213 @@ document.addEventListener('click', function(e) {
         cancelPreview();
     }
 });
+
+// ============================================================================
+// Duplicate Detection
+// ============================================================================
+
+// Extract unique key value from a row
+function extractKeyValue(row, headers, uniqueKey) {
+    if (!uniqueKey || uniqueKey.length === 0) return null;
+
+    const keyParts = [];
+    for (const keyCol of uniqueKey) {
+        const idx = headers.findIndex(h => h.toLowerCase() === keyCol.toLowerCase());
+        if (idx === -1) return null; // Key column not found in CSV
+        const val = row[idx] || '';
+        if (!val.trim()) return null; // Empty key value - skip
+        keyParts.push(val.trim());
+    }
+    return keyParts.join('|');
+}
+
+// Detect duplicates within CSV rows
+function detectCSVDuplicates(headers, allRows, uniqueKey) {
+    if (!uniqueKey || uniqueKey.length === 0) {
+        return { duplicates: [], keyColsMissing: false };
+    }
+
+    // Check if key columns exist in headers
+    const missingCols = uniqueKey.filter(k =>
+        !headers.some(h => h.toLowerCase() === k.toLowerCase())
+    );
+    if (missingCols.length > 0) {
+        return { duplicates: [], keyColsMissing: true };
+    }
+
+    const seen = new Map(); // key -> first line number
+    const duplicates = [];  // { key, lines: [lineNumber, ...] }
+
+    for (const { data, lineNumber } of allRows) {
+        const key = extractKeyValue(data, headers, uniqueKey);
+        if (!key) continue;
+
+        if (seen.has(key)) {
+            // Find or create duplicate entry
+            let entry = duplicates.find(d => d.key === key);
+            if (!entry) {
+                entry = { key, lines: [seen.get(key)] };
+                duplicates.push(entry);
+            }
+            entry.lines.push(lineNumber);
+        } else {
+            seen.set(key, lineNumber);
+        }
+    }
+
+    return { duplicates, keyColsMissing: false };
+}
+
+// Extract all unique keys from CSV rows
+function extractAllKeys(headers, allRows, uniqueKey) {
+    if (!uniqueKey || uniqueKey.length === 0) return [];
+
+    const keys = new Set();
+    for (const { data } of allRows) {
+        const key = extractKeyValue(data, headers, uniqueKey);
+        if (key) keys.add(key);
+    }
+    return Array.from(keys);
+}
+
+// Check for existing records in database
+async function checkDatabaseDuplicates(tableKey, keys) {
+    if (!keys || keys.length === 0) return { existing: [], count: 0 };
+
+    // Skip for large files (>10k unique keys)
+    if (keys.length > 10000) {
+        return { existing: [], count: 0, skipped: true };
+    }
+
+    try {
+        const response = await fetch(`/api/check-duplicates/${tableKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ keys })
+        });
+
+        if (!response.ok) {
+            console.error('Duplicate check failed:', response.status);
+            return { existing: [], count: 0, error: true };
+        }
+
+        const data = await response.json();
+        return { existing: data.existing || [], count: data.count || 0 };
+    } catch (e) {
+        console.error('Duplicate check error:', e);
+        return { existing: [], count: 0, error: true };
+    }
+}
+
+// Format CSV duplicates warning HTML
+function formatCSVDuplicatesWarning(duplicates, uniqueKey) {
+    if (!duplicates || duplicates.length === 0) return '';
+
+    const totalDupes = duplicates.reduce((sum, d) => sum + d.lines.length - 1, 0);
+    const keyLabel = uniqueKey.length > 1 ? uniqueKey.join(' + ') : uniqueKey[0];
+
+    let html = `
+        <div class="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200">
+            <div class="flex items-center gap-2 mb-2">
+                <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                </svg>
+                <span class="text-sm font-medium text-amber-800">${totalDupes} duplicate${totalDupes === 1 ? '' : 's'} within CSV (by ${escapeHtml(keyLabel)})</span>
+            </div>
+            <div class="text-xs text-amber-700 space-y-1 max-h-24 overflow-y-auto">
+    `;
+
+    // Show first 5 duplicates
+    const shown = duplicates.slice(0, 5);
+    for (const d of shown) {
+        html += `<div>"<span class="font-medium">${escapeHtml(d.key)}</span>" on rows ${d.lines.join(', ')}</div>`;
+    }
+    if (duplicates.length > 5) {
+        html += `<div class="text-amber-600 italic">...and ${duplicates.length - 5} more</div>`;
+    }
+
+    html += '</div></div>';
+    return html;
+}
+
+// Format database duplicates warning HTML
+function formatDBDuplicatesWarning(existing, uniqueKey, loading = false, error = false, skipped = false) {
+    if (loading) {
+        return `
+            <div id="db-duplicates-section" class="mb-4 p-3 rounded-lg bg-gray-50 border border-gray-200">
+                <div class="flex items-center gap-2">
+                    <svg class="w-5 h-5 text-gray-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span class="text-sm text-gray-600">Checking for existing records in database...</span>
+                </div>
+            </div>
+        `;
+    }
+
+    if (error) {
+        return `
+            <div id="db-duplicates-section" class="mb-4 p-3 rounded-lg bg-gray-50 border border-gray-200">
+                <div class="flex items-center gap-2">
+                    <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <span class="text-sm text-gray-500">Could not check database for duplicates</span>
+                </div>
+            </div>
+        `;
+    }
+
+    if (skipped) {
+        return `
+            <div id="db-duplicates-section" class="mb-4 p-3 rounded-lg bg-gray-50 border border-gray-200">
+                <div class="flex items-center gap-2">
+                    <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <span class="text-sm text-gray-500">Large file - database duplicate check skipped</span>
+                </div>
+            </div>
+        `;
+    }
+
+    if (!existing || existing.length === 0) {
+        return `
+            <div id="db-duplicates-section" class="mb-4 p-3 rounded-lg bg-green-50 border border-green-200">
+                <div class="flex items-center gap-2">
+                    <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <span class="text-sm font-medium text-green-800">No existing records found in database</span>
+                </div>
+            </div>
+        `;
+    }
+
+    const keyLabel = uniqueKey.length > 1 ? uniqueKey.join(' + ') : uniqueKey[0];
+
+    let html = `
+        <div id="db-duplicates-section" class="mb-4 p-3 rounded-lg bg-red-50 border border-red-200">
+            <div class="flex items-center gap-2 mb-2">
+                <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                </svg>
+                <span class="text-sm font-medium text-red-800">${existing.length} record${existing.length === 1 ? '' : 's'} already in database</span>
+            </div>
+            <div class="text-xs text-red-700 mb-2">These will create duplicates or be skipped (by ${escapeHtml(keyLabel)}):</div>
+            <div class="text-xs text-red-600 space-y-0.5 max-h-24 overflow-y-auto font-mono">
+    `;
+
+    // Show first 8 existing keys
+    const shown = existing.slice(0, 8);
+    for (const key of shown) {
+        html += `<div>${escapeHtml(key)}</div>`;
+    }
+    if (existing.length > 8) {
+        html += `<div class="text-red-500 italic font-sans">...and ${existing.length - 8} more</div>`;
+    }
+
+    html += '</div></div>';
+    return html;
+}

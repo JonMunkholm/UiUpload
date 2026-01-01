@@ -79,6 +79,9 @@ func (s *Server) setupRoutes() {
 		r.Get("/upload/{uploadID}/result", s.handleUploadResult)
 		r.Post("/upload/{uploadID}/cancel", s.handleCancelUpload)
 
+		// Duplicate check
+		r.Post("/check-duplicates/{tableKey}", s.handleCheckDuplicates)
+
 		// Reset operations
 		r.Post("/reset/{tableKey}", s.handleReset)
 		r.Post("/reset", s.handleResetAll)

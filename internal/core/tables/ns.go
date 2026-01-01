@@ -20,6 +20,7 @@ func registerNsCustomers() {
 			Group:     "NS",
 			Label:     "Customers",
 			Directory: "Customers",
+			UniqueKey: []string{"internal_id"},
 		},
 		FieldSpecs: []core.FieldSpec{
 			{Name: "salesforce_id_io", Type: core.FieldText, Required: false, AllowEmpty: true},
@@ -61,6 +62,7 @@ func registerNsSoDetail() {
 			Group:     "NS",
 			Label:     "SO Detail",
 			Directory: "SoDetail",
+			UniqueKey: []string{"sfdc_opp_id", "sfdc_opp_line_id"},
 		},
 		FieldSpecs: []core.FieldSpec{
 			{Name: "sfdc_opp_id", Type: core.FieldText, Required: false, AllowEmpty: true},
@@ -118,6 +120,7 @@ func registerNsInvoiceDetail() {
 			Group:     "NS",
 			Label:     "Invoice Detail",
 			Directory: "InvoiceDetail",
+			UniqueKey: []string{"sfdc_opp_id", "sfdc_opp_line_id"},
 		},
 		FieldSpecs: []core.FieldSpec{
 			{Name: "sfdc_opp_id", Type: core.FieldText, Required: false, AllowEmpty: true},

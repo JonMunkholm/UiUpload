@@ -673,3 +673,122 @@ func toDBColumnName(name string) string {
 	// Replace spaces with underscores and convert to lowercase
 	return strings.ToLower(strings.ReplaceAll(name, " ", "_"))
 }
+
+// CheckDuplicates checks if any of the provided keys already exist in the database.
+// Keys are expected to be in the format "val1|val2" for composite keys.
+// Returns the list of keys that already exist in the database.
+func (s *Service) CheckDuplicates(ctx context.Context, tableKey string, keys []string) ([]string, error) {
+	def, ok := Get(tableKey)
+	if !ok {
+		return nil, fmt.Errorf("unknown table: %s", tableKey)
+	}
+
+	uniqueKey := def.Info.UniqueKey
+	if len(uniqueKey) == 0 {
+		return []string{}, nil // No unique key defined, can't check duplicates
+	}
+
+	// Build the DB column names for unique key columns
+	dbCols := make([]string, len(uniqueKey))
+	for i, col := range uniqueKey {
+		// First check FieldSpecs for explicit DBColumn
+		dbCol := ""
+		for _, spec := range def.FieldSpecs {
+			if strings.EqualFold(spec.Name, col) && spec.DBColumn != "" {
+				dbCol = spec.DBColumn
+				break
+			}
+		}
+		if dbCol == "" {
+			dbCol = toDBColumnName(col)
+		}
+		dbCols[i] = dbCol
+	}
+
+	// Build query based on single vs composite key
+	var query string
+	var args []interface{}
+
+	if len(uniqueKey) == 1 {
+		// Single column unique key - use ANY for efficiency
+		query = fmt.Sprintf(
+			"SELECT DISTINCT %s FROM %s WHERE %s = ANY($1)",
+			quoteIdentifier(dbCols[0]),
+			quoteIdentifier(tableKey),
+			quoteIdentifier(dbCols[0]),
+		)
+		args = []interface{}{keys}
+	} else {
+		// Composite key - need to parse keys and use tuple comparison
+		// Keys are in format "val1|val2"
+		var conditions []string
+		argIndex := 1
+
+		for _, key := range keys {
+			parts := strings.Split(key, "|")
+			if len(parts) != len(uniqueKey) {
+				continue // Invalid key format
+			}
+
+			placeholders := make([]string, len(parts))
+			for i, part := range parts {
+				placeholders[i] = fmt.Sprintf("$%d", argIndex)
+				args = append(args, part)
+				argIndex++
+			}
+
+			condition := fmt.Sprintf("(%s) = (%s)",
+				strings.Join(quoteColumns(dbCols), ", "),
+				strings.Join(placeholders, ", "),
+			)
+			conditions = append(conditions, condition)
+		}
+
+		if len(conditions) == 0 {
+			return []string{}, nil // No valid keys to check
+		}
+
+		// Select concatenated key columns
+		concatExpr := make([]string, len(dbCols))
+		for i, col := range dbCols {
+			concatExpr[i] = fmt.Sprintf("COALESCE(%s::text, '')", quoteIdentifier(col))
+		}
+
+		query = fmt.Sprintf(
+			"SELECT DISTINCT %s FROM %s WHERE %s",
+			strings.Join(concatExpr, " || '|' || "),
+			quoteIdentifier(tableKey),
+			strings.Join(conditions, " OR "),
+		)
+	}
+
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("check duplicates: %w", err)
+	}
+	defer rows.Close()
+
+	var existing []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, fmt.Errorf("scan key: %w", err)
+		}
+		existing = append(existing, key)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return existing, nil
+}
+
+// quoteColumns quotes each column name in the slice.
+func quoteColumns(cols []string) []string {
+	quoted := make([]string, len(cols))
+	for i, col := range cols {
+		quoted[i] = quoteIdentifier(col)
+	}
+	return quoted
+}

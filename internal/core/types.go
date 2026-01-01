@@ -47,6 +47,7 @@ type TableInfo struct {
 	Label     string   // Display name: "Customers"
 	Directory string   // Upload folder: "Customers"
 	Columns   []string // Header column names
+	UniqueKey []string // Column(s) that form the unique key for duplicate detection
 }
 
 // HeaderIndex maps column names (lowercase) to their position in the CSV row.
