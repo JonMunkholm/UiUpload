@@ -401,18 +401,94 @@ type TableRow map[string]interface{}
 
 // TableDataResult contains paginated table data.
 type TableDataResult struct {
-	Rows        []TableRow
-	TotalRows   int64
-	Page        int
-	PageSize    int
-	TotalPages  int
-	SortColumn  string
-	SortDir     string
-	SearchQuery string // Current search term, if any
+	Rows          []TableRow
+	TotalRows     int64
+	Page          int
+	PageSize      int
+	TotalPages    int
+	SortColumn    string
+	SortDir       string
+	SearchQuery   string            // Current search term, if any
+	ActiveFilters map[string]string // Active column filters: column -> "op:value"
+}
+
+// buildFilterConditions generates WHERE clause conditions from filters.
+// Returns conditions, args, and next arg index.
+func buildFilterConditions(filters FilterSet, startArgIndex int) ([]string, []interface{}, int) {
+	var conditions []string
+	var args []interface{}
+	argIdx := startArgIndex
+
+	for _, f := range filters.Filters {
+		condition, filterArgs, newArgIdx := buildSingleFilter(f, argIdx)
+		if condition != "" {
+			conditions = append(conditions, condition)
+			args = append(args, filterArgs...)
+			argIdx = newArgIdx
+		}
+	}
+
+	return conditions, args, argIdx
+}
+
+// buildSingleFilter generates SQL for a single filter.
+func buildSingleFilter(f ColumnFilter, argIdx int) (string, []interface{}, int) {
+	col := quoteIdentifier(f.DBColumn)
+
+	switch f.Operator {
+	case OpContains:
+		return fmt.Sprintf("%s ILIKE $%d", col, argIdx),
+			[]interface{}{"%" + f.Value + "%"}, argIdx + 1
+
+	case OpEquals:
+		return fmt.Sprintf("%s = $%d", col, argIdx),
+			[]interface{}{f.Value}, argIdx + 1
+
+	case OpStartsWith:
+		return fmt.Sprintf("%s ILIKE $%d", col, argIdx),
+			[]interface{}{f.Value + "%"}, argIdx + 1
+
+	case OpEndsWith:
+		return fmt.Sprintf("%s ILIKE $%d", col, argIdx),
+			[]interface{}{"%" + f.Value}, argIdx + 1
+
+	case OpGreaterEq:
+		return fmt.Sprintf("%s >= $%d", col, argIdx),
+			[]interface{}{f.Value}, argIdx + 1
+
+	case OpLessEq:
+		return fmt.Sprintf("%s <= $%d", col, argIdx),
+			[]interface{}{f.Value}, argIdx + 1
+
+	case OpGreater:
+		return fmt.Sprintf("%s > $%d", col, argIdx),
+			[]interface{}{f.Value}, argIdx + 1
+
+	case OpLess:
+		return fmt.Sprintf("%s < $%d", col, argIdx),
+			[]interface{}{f.Value}, argIdx + 1
+
+	case OpIn:
+		values := strings.Split(f.Value, ",")
+		if len(values) == 0 {
+			return "", nil, argIdx
+		}
+		placeholders := make([]string, len(values))
+		filterArgs := make([]interface{}, len(values))
+		for i, v := range values {
+			placeholders[i] = fmt.Sprintf("$%d", argIdx+i)
+			filterArgs[i] = strings.TrimSpace(v)
+		}
+		return fmt.Sprintf("%s IN (%s)", col, strings.Join(placeholders, ", ")),
+			filterArgs, argIdx + len(values)
+
+	default:
+		return "", nil, argIdx
+	}
 }
 
 // GetTableData fetches paginated, sorted, and optionally filtered data from any table.
-func (s *Service) GetTableData(ctx context.Context, tableKey string, page, pageSize int, sortColumn, sortDir, searchQuery string) (*TableDataResult, error) {
+func (s *Service) GetTableData(ctx context.Context, tableKey string, page, pageSize int, sortColumn, sortDir, searchQuery string, filters FilterSet) (*TableDataResult, error) {
 	def, ok := Get(tableKey)
 	if !ok {
 		return nil, fmt.Errorf("unknown table: %s", tableKey)
@@ -437,11 +513,13 @@ func (s *Service) GetTableData(ctx context.Context, tableKey string, page, pageS
 		quotedCols[i] = quoteIdentifier(dbCol)
 	}
 
-	// Build WHERE clause for search (only text columns)
+	// Build WHERE clause combining search and filters
 	var whereClause string
 	var queryArgs []interface{}
 	argIndex := 1
+	var allConditions []string
 
+	// Build search conditions (OR across text columns)
 	if searchQuery != "" {
 		var textConditions []string
 		for _, spec := range def.FieldSpecs {
@@ -450,14 +528,27 @@ func (s *Service) GetTableData(ctx context.Context, tableKey string, page, pageS
 				if dbCol == "" {
 					dbCol = toDBColumnName(spec.Name)
 				}
-				textConditions = append(textConditions, fmt.Sprintf("%s ILIKE $1", quoteIdentifier(dbCol)))
+				textConditions = append(textConditions, fmt.Sprintf("%s ILIKE $%d", quoteIdentifier(dbCol), argIndex))
 			}
 		}
 		if len(textConditions) > 0 {
-			whereClause = " WHERE " + strings.Join(textConditions, " OR ")
+			allConditions = append(allConditions, "("+strings.Join(textConditions, " OR ")+")")
 			queryArgs = append(queryArgs, "%"+searchQuery+"%")
-			argIndex = 2
+			argIndex++
 		}
+	}
+
+	// Build filter conditions (AND together)
+	if len(filters.Filters) > 0 {
+		filterConditions, filterArgs, nextIdx := buildFilterConditions(filters, argIndex)
+		allConditions = append(allConditions, filterConditions...)
+		queryArgs = append(queryArgs, filterArgs...)
+		argIndex = nextIdx
+	}
+
+	// Combine all conditions with AND
+	if len(allConditions) > 0 {
+		whereClause = " WHERE " + strings.Join(allConditions, " AND ")
 	}
 
 	// Get total count (with search filter)
@@ -537,21 +628,28 @@ func (s *Service) GetTableData(ctx context.Context, tableKey string, page, pageS
 		return nil, fmt.Errorf("rows error: %w", err)
 	}
 
+	// Build ActiveFilters map for UI state
+	activeFilters := make(map[string]string)
+	for _, f := range filters.Filters {
+		activeFilters[f.Column] = string(f.Operator) + ":" + f.Value
+	}
+
 	return &TableDataResult{
-		Rows:        resultRows,
-		TotalRows:   totalRows,
-		Page:        page,
-		PageSize:    pageSize,
-		TotalPages:  totalPages,
-		SortColumn:  sortColumn,
-		SortDir:     sortDir,
-		SearchQuery: searchQuery,
+		Rows:          resultRows,
+		TotalRows:     totalRows,
+		Page:          page,
+		PageSize:      pageSize,
+		TotalPages:    totalPages,
+		SortColumn:    sortColumn,
+		SortDir:       sortDir,
+		SearchQuery:   searchQuery,
+		ActiveFilters: activeFilters,
 	}, nil
 }
 
 // GetAllTableData fetches all data from a table without pagination.
-// Used for CSV export. Optionally filters by search query.
-func (s *Service) GetAllTableData(ctx context.Context, tableKey, searchQuery string) (*TableDataResult, error) {
+// Used for CSV export. Optionally filters by search query and column filters.
+func (s *Service) GetAllTableData(ctx context.Context, tableKey, searchQuery string, filters FilterSet) (*TableDataResult, error) {
 	def, ok := Get(tableKey)
 	if !ok {
 		return nil, fmt.Errorf("unknown table: %s", tableKey)
@@ -574,10 +672,13 @@ func (s *Service) GetAllTableData(ctx context.Context, tableKey, searchQuery str
 		quotedCols[i] = quoteIdentifier(dbCol)
 	}
 
-	// Build WHERE clause for search (only text columns)
+	// Build WHERE clause combining search and filters
 	var whereClause string
 	var queryArgs []interface{}
+	argIndex := 1
+	var allConditions []string
 
+	// Build search conditions (OR across text columns)
 	if searchQuery != "" {
 		var textConditions []string
 		for _, spec := range def.FieldSpecs {
@@ -586,16 +687,29 @@ func (s *Service) GetAllTableData(ctx context.Context, tableKey, searchQuery str
 				if dbCol == "" {
 					dbCol = toDBColumnName(spec.Name)
 				}
-				textConditions = append(textConditions, fmt.Sprintf("%s ILIKE $1", quoteIdentifier(dbCol)))
+				textConditions = append(textConditions, fmt.Sprintf("%s ILIKE $%d", quoteIdentifier(dbCol), argIndex))
 			}
 		}
 		if len(textConditions) > 0 {
-			whereClause = " WHERE " + strings.Join(textConditions, " OR ")
+			allConditions = append(allConditions, "("+strings.Join(textConditions, " OR ")+")")
 			queryArgs = append(queryArgs, "%"+searchQuery+"%")
+			argIndex++
 		}
 	}
 
-	// Get total count (with search filter)
+	// Build filter conditions (AND together)
+	if len(filters.Filters) > 0 {
+		filterConditions, filterArgs, _ := buildFilterConditions(filters, argIndex)
+		allConditions = append(allConditions, filterConditions...)
+		queryArgs = append(queryArgs, filterArgs...)
+	}
+
+	// Combine all conditions with AND
+	if len(allConditions) > 0 {
+		whereClause = " WHERE " + strings.Join(allConditions, " AND ")
+	}
+
+	// Get total count (with search and filter)
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s%s", quoteIdentifier(tableKey), whereClause)
 	var totalRows int64
 	err := s.pool.QueryRow(ctx, countQuery, queryArgs...).Scan(&totalRows)
@@ -603,11 +717,18 @@ func (s *Service) GetAllTableData(ctx context.Context, tableKey, searchQuery str
 		return nil, fmt.Errorf("count rows: %w", err)
 	}
 
+	// Build ActiveFilters map for UI state
+	activeFilters := make(map[string]string)
+	for _, f := range filters.Filters {
+		activeFilters[f.Column] = string(f.Operator) + ":" + f.Value
+	}
+
 	if totalRows == 0 {
 		return &TableDataResult{
-			Rows:        []TableRow{},
-			TotalRows:   0,
-			SearchQuery: searchQuery,
+			Rows:          []TableRow{},
+			TotalRows:     0,
+			SearchQuery:   searchQuery,
+			ActiveFilters: activeFilters,
 		}, nil
 	}
 
@@ -645,9 +766,10 @@ func (s *Service) GetAllTableData(ctx context.Context, tableKey, searchQuery str
 	}
 
 	return &TableDataResult{
-		Rows:        resultRows,
-		TotalRows:   totalRows,
-		SearchQuery: searchQuery,
+		Rows:          resultRows,
+		TotalRows:     totalRows,
+		SearchQuery:   searchQuery,
+		ActiveFilters: activeFilters,
 	}, nil
 }
 
@@ -866,4 +988,274 @@ func (s *Service) DeleteRows(ctx context.Context, tableKey string, keys []string
 	}
 
 	return int(totalDeleted), nil
+}
+
+// UpdateCellRequest contains the data for updating a single cell.
+type UpdateCellRequest struct {
+	RowKey string // Composite key value (e.g., "val1|val2")
+	Column string // Display column name
+	Value  string // New value as string
+}
+
+// UpdateCellResult contains the result of a cell update.
+type UpdateCellResult struct {
+	Success         bool   `json:"success"`
+	DuplicateKey    bool   `json:"duplicateKey,omitempty"`
+	ConflictingKey  string `json:"conflictingKey,omitempty"`
+	ValidationError string `json:"validationError,omitempty"`
+}
+
+// UpdateCell updates a single cell value.
+func (s *Service) UpdateCell(ctx context.Context, tableKey string, req UpdateCellRequest) (*UpdateCellResult, error) {
+	def, ok := Get(tableKey)
+	if !ok {
+		return nil, fmt.Errorf("unknown table: %s", tableKey)
+	}
+
+	uniqueKey := def.Info.UniqueKey
+	if len(uniqueKey) == 0 {
+		return nil, fmt.Errorf("table %s has no unique key defined", tableKey)
+	}
+
+	// Find the FieldSpec for this column
+	var fieldSpec *FieldSpec
+	for i := range def.FieldSpecs {
+		if strings.EqualFold(def.FieldSpecs[i].Name, req.Column) {
+			fieldSpec = &def.FieldSpecs[i]
+			break
+		}
+	}
+
+	// Determine DB column name
+	dbCol := toDBColumnName(req.Column)
+	if fieldSpec != nil && fieldSpec.DBColumn != "" {
+		dbCol = fieldSpec.DBColumn
+	}
+
+	// Validate value against type
+	if fieldSpec != nil {
+		if err := validateCellValue(req.Value, *fieldSpec); err != nil {
+			return &UpdateCellResult{
+				Success:         false,
+				ValidationError: err.Error(),
+			}, nil
+		}
+	}
+
+	// Check if column is part of unique key
+	isUniqueKeyColumn := false
+	for _, uk := range uniqueKey {
+		if strings.EqualFold(uk, req.Column) {
+			isUniqueKeyColumn = true
+			break
+		}
+	}
+
+	// If updating unique key column, check for duplicates
+	if isUniqueKeyColumn && req.Value != "" {
+		newKey := s.buildNewCompositeKey(uniqueKey, req.RowKey, req.Column, req.Value)
+
+		// Check if new key exists (excluding current row)
+		exists, err := s.keyExistsExcludingRow(ctx, tableKey, def, uniqueKey, newKey, req.RowKey)
+		if err != nil {
+			return nil, fmt.Errorf("duplicate check failed: %w", err)
+		}
+
+		if exists {
+			return &UpdateCellResult{
+				Success:        false,
+				DuplicateKey:   true,
+				ConflictingKey: newKey,
+			}, nil
+		}
+	}
+
+	// Build and execute UPDATE query
+	err := s.executeUpdateCell(ctx, tableKey, def, uniqueKey, req.RowKey, dbCol, req.Value, fieldSpec)
+	if err != nil {
+		return nil, fmt.Errorf("update failed: %w", err)
+	}
+
+	return &UpdateCellResult{Success: true}, nil
+}
+
+// validateCellValue checks if a value is valid for the given field spec.
+func validateCellValue(value string, spec FieldSpec) error {
+	if value == "" {
+		return nil // Empty values are allowed (will be NULL)
+	}
+
+	switch spec.Type {
+	case FieldNumeric:
+		result := ToPgNumeric(value)
+		if !result.Valid {
+			return fmt.Errorf("invalid number format")
+		}
+	case FieldDate:
+		result := ToPgDate(value)
+		if !result.Valid {
+			return fmt.Errorf("invalid date format (use YYYY-MM-DD)")
+		}
+	case FieldBool:
+		result := ToPgBool(value)
+		if !result.Valid {
+			return fmt.Errorf("must be yes/no, true/false, or 1/0")
+		}
+	case FieldEnum:
+		if len(spec.EnumValues) > 0 {
+			found := false
+			for _, ev := range spec.EnumValues {
+				if strings.EqualFold(ev, value) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("value must be one of: %s", strings.Join(spec.EnumValues, ", "))
+			}
+		}
+	}
+	return nil
+}
+
+// buildNewCompositeKey builds the new composite key value after updating one column.
+func (s *Service) buildNewCompositeKey(uniqueKey []string, oldKey, updatedColumn, newValue string) string {
+	parts := strings.Split(oldKey, "|")
+	if len(parts) != len(uniqueKey) {
+		return newValue // Single key case
+	}
+
+	// Find which part to update
+	for i, col := range uniqueKey {
+		if strings.EqualFold(col, updatedColumn) {
+			parts[i] = newValue
+			break
+		}
+	}
+
+	return strings.Join(parts, "|")
+}
+
+// keyExistsExcludingRow checks if a key exists in the table, excluding the current row.
+func (s *Service) keyExistsExcludingRow(ctx context.Context, tableKey string, def TableDefinition, uniqueKey []string, newKey, currentKey string) (bool, error) {
+	// Build DB column names
+	dbCols := make([]string, len(uniqueKey))
+	for i, col := range uniqueKey {
+		dbCol := ""
+		for _, spec := range def.FieldSpecs {
+			if strings.EqualFold(spec.Name, col) && spec.DBColumn != "" {
+				dbCol = spec.DBColumn
+				break
+			}
+		}
+		if dbCol == "" {
+			dbCol = toDBColumnName(col)
+		}
+		dbCols[i] = dbCol
+	}
+
+	newParts := strings.Split(newKey, "|")
+	currentParts := strings.Split(currentKey, "|")
+
+	if len(newParts) != len(uniqueKey) || len(currentParts) != len(uniqueKey) {
+		return false, fmt.Errorf("invalid key format")
+	}
+
+	// Build WHERE clause: new key matches AND NOT current key
+	var conditions []string
+	var args []interface{}
+	argIdx := 1
+
+	// Conditions for new key (must match)
+	for i, dbCol := range dbCols {
+		conditions = append(conditions, fmt.Sprintf("%s = $%d", quoteIdentifier(dbCol), argIdx))
+		args = append(args, newParts[i])
+		argIdx++
+	}
+
+	// Conditions for excluding current row (at least one must differ)
+	var excludeConditions []string
+	for i, dbCol := range dbCols {
+		excludeConditions = append(excludeConditions, fmt.Sprintf("%s != $%d", quoteIdentifier(dbCol), argIdx))
+		args = append(args, currentParts[i])
+		argIdx++
+	}
+
+	query := fmt.Sprintf(
+		"SELECT EXISTS(SELECT 1 FROM %s WHERE %s AND (%s))",
+		quoteIdentifier(tableKey),
+		strings.Join(conditions, " AND "),
+		strings.Join(excludeConditions, " OR "),
+	)
+
+	var exists bool
+	err := s.pool.QueryRow(ctx, query, args...).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+
+	return exists, nil
+}
+
+// executeUpdateCell performs the actual database update.
+func (s *Service) executeUpdateCell(ctx context.Context, tableKey string, def TableDefinition, uniqueKey []string, rowKey, dbCol, value string, spec *FieldSpec) error {
+	keyParts := strings.Split(rowKey, "|")
+	if len(keyParts) != len(uniqueKey) {
+		return fmt.Errorf("invalid row key format")
+	}
+
+	// Build DB column names for unique key
+	dbKeyCols := make([]string, len(uniqueKey))
+	for i, col := range uniqueKey {
+		dbKeyCol := ""
+		for _, s := range def.FieldSpecs {
+			if strings.EqualFold(s.Name, col) && s.DBColumn != "" {
+				dbKeyCol = s.DBColumn
+				break
+			}
+		}
+		if dbKeyCol == "" {
+			dbKeyCol = toDBColumnName(col)
+		}
+		dbKeyCols[i] = dbKeyCol
+	}
+
+	// Convert value to appropriate type
+	var dbValue interface{}
+	if value == "" {
+		dbValue = nil
+	} else if spec != nil {
+		switch spec.Type {
+		case FieldNumeric:
+			dbValue = ToPgNumeric(value)
+		case FieldDate:
+			dbValue = ToPgDate(value)
+		case FieldBool:
+			dbValue = ToPgBool(value)
+		default:
+			dbValue = ToPgText(value)
+		}
+	} else {
+		dbValue = ToPgText(value)
+	}
+
+	// Build parameterized query
+	conditions := make([]string, len(dbKeyCols))
+	args := make([]interface{}, len(dbKeyCols)+1)
+
+	args[0] = dbValue // Value to set is $1
+	for i, keyCol := range dbKeyCols {
+		conditions[i] = fmt.Sprintf("%s = $%d", quoteIdentifier(keyCol), i+2)
+		args[i+1] = keyParts[i]
+	}
+
+	query := fmt.Sprintf(
+		"UPDATE %s SET %s = $1 WHERE %s",
+		quoteIdentifier(tableKey),
+		quoteIdentifier(dbCol),
+		strings.Join(conditions, " AND "),
+	)
+
+	_, err := s.pool.Exec(ctx, query, args...)
+	return err
 }

@@ -128,3 +128,32 @@ type UploadResult struct {
 
 // ProgressCallback is called periodically during upload processing.
 type ProgressCallback func(UploadProgress)
+
+// FilterOperator represents a comparison operator for column filters.
+type FilterOperator string
+
+const (
+	OpContains   FilterOperator = "contains"
+	OpEquals     FilterOperator = "eq"
+	OpStartsWith FilterOperator = "starts"
+	OpEndsWith   FilterOperator = "ends"
+	OpGreaterEq  FilterOperator = "gte"
+	OpLessEq     FilterOperator = "lte"
+	OpGreater    FilterOperator = "gt"
+	OpLess       FilterOperator = "lt"
+	OpIn         FilterOperator = "in"
+)
+
+// ColumnFilter represents a single filter condition on a column.
+type ColumnFilter struct {
+	Column   string         // Display column name
+	DBColumn string         // Database column name
+	Operator FilterOperator // Comparison operator
+	Value    string         // Filter value (comma-separated for OpIn)
+	Type     FieldType      // Column type for proper SQL generation
+}
+
+// FilterSet represents all active filters (combined with AND logic).
+type FilterSet struct {
+	Filters []ColumnFilter
+}

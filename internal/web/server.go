@@ -85,6 +85,9 @@ func (s *Server) setupRoutes() {
 		// Delete rows
 		r.Post("/delete/{tableKey}", s.handleDeleteRows)
 
+		// Update cell
+		r.Post("/update/{tableKey}", s.handleUpdateCell)
+
 		// Reset operations
 		r.Post("/reset/{tableKey}", s.handleReset)
 		r.Post("/reset", s.handleResetAll)

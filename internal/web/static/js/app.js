@@ -451,10 +451,10 @@ document.body.addEventListener('htmx:configRequest', function(e) {
 
 function initKeyboardShortcuts() {
     document.addEventListener('keydown', function(e) {
-        // Ignore if typing in input/textarea
+        // Ignore if typing in input/textarea (edit inputs have their own handlers)
         if (e.target.matches('input, textarea, select')) {
-            // But allow Esc to blur and clear
-            if (e.key === 'Escape') {
+            // Allow Esc to blur and clear (unless in edit mode - handled by edit keydown)
+            if (e.key === 'Escape' && !e.target.classList.contains('edit-input')) {
                 e.target.blur();
                 clearSearch();
                 closeColumnDropdown();
@@ -468,9 +468,11 @@ function initKeyboardShortcuts() {
                 focusSearch();
                 break;
             case 'Escape':
-                hideRowModal();
+                cancelEdit();
                 cancelPreview();
                 closeColumnDropdown();
+                hideDeleteModal();
+                hideKeyboardHelp();
                 break;
             case 'c':
                 toggleColumnDropdown();
@@ -530,51 +532,70 @@ function goToNextPage() {
 }
 
 function showShortcutsHelp() {
-    showToast('Shortcuts: / search, Esc clear, c columns, e export, ←→ pages');
-}
+    // Show a more comprehensive help modal
+    const helpHtml = `
+        <div class="text-left text-sm space-y-3">
+            <div>
+                <div class="font-semibold text-gray-700 mb-1">Navigation</div>
+                <div class="text-gray-600 space-y-0.5">
+                    <div><kbd class="px-1 py-0.5 bg-gray-100 rounded text-xs">↑↓←→</kbd> Move between cells</div>
+                    <div><kbd class="px-1 py-0.5 bg-gray-100 rounded text-xs">Tab</kbd> Next cell</div>
+                    <div><kbd class="px-1 py-0.5 bg-gray-100 rounded text-xs">Enter</kbd> Edit cell</div>
+                    <div><kbd class="px-1 py-0.5 bg-gray-100 rounded text-xs">Esc</kbd> Cancel / Clear focus</div>
+                </div>
+            </div>
+            <div>
+                <div class="font-semibold text-gray-700 mb-1">Global</div>
+                <div class="text-gray-600 space-y-0.5">
+                    <div><kbd class="px-1 py-0.5 bg-gray-100 rounded text-xs">/</kbd> Focus search</div>
+                    <div><kbd class="px-1 py-0.5 bg-gray-100 rounded text-xs">c</kbd> Toggle columns</div>
+                    <div><kbd class="px-1 py-0.5 bg-gray-100 rounded text-xs">e</kbd> Export CSV</div>
+                    <div><kbd class="px-1 py-0.5 bg-gray-100 rounded text-xs">?</kbd> Show this help</div>
+                </div>
+            </div>
+        </div>
+    `;
 
-// ============================================================================
-// Row Details Modal
-// ============================================================================
-
-function showRowDetails(row) {
-    const columns = getAllColumns();
-    const cells = row.querySelectorAll('td');
-
-    let html = '<dl class="space-y-3">';
-    columns.forEach((col, i) => {
-        const value = cells[i]?.getAttribute('title') || cells[i]?.textContent?.trim() || '-';
-        html += `
-            <div class="grid grid-cols-3 gap-4 py-2 border-b border-gray-100 last:border-0">
-                <dt class="text-sm font-medium text-gray-500">${escapeHtml(col)}</dt>
-                <dd class="text-sm text-gray-900 col-span-2 break-words">${escapeHtml(value)}</dd>
+    // Create help modal if it doesn't exist
+    let modal = document.getElementById('keyboard-help-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'keyboard-help-modal';
+        modal.className = 'fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50';
+        modal.innerHTML = `
+            <div class="bg-white rounded-lg shadow-xl max-w-sm w-full mx-4">
+                <div class="flex items-center justify-between p-4 border-b">
+                    <h3 class="text-lg font-semibold text-gray-900">Keyboard Shortcuts</h3>
+                    <button onclick="hideKeyboardHelp()" class="text-gray-400 hover:text-gray-600">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+                <div class="p-4" id="keyboard-help-content"></div>
             </div>
         `;
-    });
-    html += '</dl>';
+        document.body.appendChild(modal);
+    }
 
-    document.getElementById('row-modal-content').innerHTML = html;
-    document.getElementById('row-modal').classList.remove('hidden');
+    document.getElementById('keyboard-help-content').innerHTML = helpHtml;
+    modal.classList.remove('hidden');
 }
 
-function hideRowModal() {
-    const modal = document.getElementById('row-modal');
+function hideKeyboardHelp() {
+    const modal = document.getElementById('keyboard-help-modal');
     if (modal) modal.classList.add('hidden');
 }
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
 
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
 }
-
-// Close row modal on outside click
-document.addEventListener('click', function(e) {
-    const modal = document.getElementById('row-modal');
-    if (modal && e.target === modal) {
-        hideRowModal();
-    }
-});
 
 // ============================================================================
 // CSV Preview & Column Mapping
@@ -1170,15 +1191,6 @@ function updateSelectionUI() {
     }
 }
 
-// Handle row click - show details unless checkbox was clicked
-function handleRowClick(event, row) {
-    // If clicking on the checkbox cell, don't show details
-    if (event.target.closest('td')?.querySelector('.row-checkbox')) {
-        return;
-    }
-    showRowDetails(row);
-}
-
 // Show delete confirmation modal
 function showDeleteModal() {
     const deleteCount = document.getElementById('delete-count');
@@ -1263,3 +1275,795 @@ function closeColumnDropdown() {
     const dropdown = document.getElementById('column-dropdown');
     if (dropdown) dropdown.classList.add('hidden');
 }
+
+// ============================================================================
+// Inline Cell Editing
+// ============================================================================
+
+let currentEditCell = null;
+let originalCellHTML = null;
+let columnsMeta = null;
+
+// Initialize inline editing
+function initInlineEditing() {
+    // Parse column metadata from data attribute
+    const container = document.getElementById('table-container');
+    if (container && container.dataset.columnsMeta) {
+        try {
+            columnsMeta = JSON.parse(container.dataset.columnsMeta);
+        } catch (e) {
+            console.error('Failed to parse columns meta:', e);
+            columnsMeta = [];
+        }
+    }
+
+    // Add double-click handler for editable cells
+    document.addEventListener('dblclick', handleCellDoubleClick);
+}
+
+// Get column metadata by name
+function getColumnMeta(colName) {
+    if (!columnsMeta) return null;
+    return columnsMeta.find(m => m.name === colName);
+}
+
+// Handle double-click on a cell
+function handleCellDoubleClick(event) {
+    const cell = event.target.closest('td.editable-cell');
+    if (!cell || currentEditCell) return;
+
+    // Don't edit if clicking on existing input/button
+    if (event.target.matches('input, button, select')) return;
+
+    startEdit(cell);
+}
+
+// Start editing a cell
+function startEdit(cell) {
+    const row = cell.closest('tr');
+    const rowKey = row.dataset.rowKey;
+    const colName = cell.dataset.colName;
+    const rawValue = cell.dataset.rawValue || '';
+
+    if (!rowKey || !colName) return;
+
+    const meta = getColumnMeta(colName);
+    if (!meta) {
+        // Fallback to text type
+        meta = { type: 'text', allowEmpty: true };
+    }
+
+    currentEditCell = cell;
+    originalCellHTML = cell.innerHTML;
+
+    // Build edit UI based on column type
+    const inputHTML = buildEditInput(meta, rawValue);
+    const isKeyColumn = meta.isUniqueKey;
+
+    cell.innerHTML = `
+        <div class="flex items-center gap-1">
+            ${inputHTML}
+            <button type="button" onclick="saveEdit()" class="p-1 text-green-600 hover:text-green-800" title="Save (Enter)">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+            </button>
+            <button type="button" onclick="cancelEdit()" class="p-1 text-red-600 hover:text-red-800" title="Cancel (Esc)">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+        </div>
+        ${isKeyColumn ? '<div class="text-xs text-amber-600 mt-1">Warning: Editing unique key</div>' : ''}
+    `;
+
+    // Remove truncate class and add min-width
+    cell.classList.remove('truncate', 'max-w-xs');
+    cell.style.minWidth = '200px';
+
+    // Focus the input
+    const input = cell.querySelector('input, select');
+    if (input) {
+        input.focus();
+        if (input.type !== 'checkbox' && input.select) {
+            input.select();
+        }
+    }
+}
+
+// Build input HTML based on column type
+function buildEditInput(meta, value) {
+    const escapedValue = escapeHtml(value);
+
+    switch (meta.type) {
+        case 'numeric':
+            return `<input type="number" step="any" value="${escapedValue}"
+                    class="edit-input w-full px-2 py-1 text-sm border border-blue-400 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    onkeydown="handleEditKeydown(event)">`;
+
+        case 'date':
+            return `<input type="date" value="${escapedValue}"
+                    class="edit-input w-full px-2 py-1 text-sm border border-blue-400 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    onkeydown="handleEditKeydown(event)">`;
+
+        case 'bool':
+            return `<select class="edit-input w-full px-2 py-1 text-sm border border-blue-400 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    onkeydown="handleEditKeydown(event)">
+                <option value="" ${value === '' ? 'selected' : ''}>-</option>
+                <option value="true" ${value === 'true' ? 'selected' : ''}>Yes</option>
+                <option value="false" ${value === 'false' ? 'selected' : ''}>No</option>
+            </select>`;
+
+        case 'enum':
+            const options = (meta.enumValues || []).map(v =>
+                `<option value="${escapeHtml(v)}" ${v === value ? 'selected' : ''}>${escapeHtml(v)}</option>`
+            ).join('');
+            return `<select class="edit-input w-full px-2 py-1 text-sm border border-blue-400 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    onkeydown="handleEditKeydown(event)">
+                <option value="">-</option>
+                ${options}
+            </select>`;
+
+        case 'text':
+        default:
+            return `<input type="text" value="${escapedValue}"
+                    class="edit-input w-full px-2 py-1 text-sm border border-blue-400 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    onkeydown="handleEditKeydown(event)">`;
+    }
+}
+
+// Handle keyboard events in edit input
+function handleEditKeydown(event) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        // Store position before save (table refreshes after save)
+        const savedPosition = focusedCell ? { ...focusedCell } : null;
+        saveEdit();
+        // After save, move down one row (spreadsheet behavior)
+        if (savedPosition) {
+            const { rows } = getTableDimensions();
+            const newRow = Math.min(savedPosition.row + 1, rows - 1);
+            // Wait for HTMX refresh then focus
+            setTimeout(() => {
+                const cell = getCellAt(newRow, savedPosition.col);
+                if (cell) focusCell(cell);
+            }, 150);
+        }
+    } else if (event.key === 'Escape') {
+        event.preventDefault();
+        cancelEdit();
+        // Restore focus to the cell
+        if (focusedElement) {
+            setTimeout(() => focusCell(focusedElement), 50);
+        }
+    } else if (event.key === 'Tab') {
+        event.preventDefault();
+        // Store position before save
+        const savedPosition = focusedCell ? { ...focusedCell } : null;
+        saveEdit();
+        // Move to next/previous cell and start editing
+        if (savedPosition) {
+            const { rows, cols } = getTableDimensions();
+            let { row, col } = savedPosition;
+            if (event.shiftKey) {
+                col--;
+                if (col < 0) { col = cols - 1; row--; }
+            } else {
+                col++;
+                if (col >= cols) { col = 0; row++; }
+            }
+            if (row >= 0 && row < rows) {
+                setTimeout(() => {
+                    const cell = getCellAt(row, col);
+                    if (cell) {
+                        focusCell(cell);
+                        startEdit(cell);
+                    }
+                }, 150);
+            }
+        }
+    }
+}
+
+// Save the edited value
+async function saveEdit() {
+    if (!currentEditCell) return;
+
+    const row = currentEditCell.closest('tr');
+    const rowKey = row.dataset.rowKey;
+    const colName = currentEditCell.dataset.colName;
+    const input = currentEditCell.querySelector('.edit-input');
+    const newValue = input ? input.value : '';
+
+    const tableKey = getTableKey();
+    if (!tableKey) {
+        cancelEdit();
+        return;
+    }
+
+    // Show loading state
+    const buttons = currentEditCell.querySelectorAll('button');
+    buttons.forEach(b => b.disabled = true);
+    input.disabled = true;
+
+    try {
+        const response = await fetch(`/api/update/${tableKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                rowKey: rowKey,
+                column: colName,
+                value: newValue
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast('Cell updated');
+            // Refresh the table to show updated value
+            const url = new URL(window.location.href);
+            htmx.ajax('GET', url.pathname + url.search, { target: '#table-container', swap: 'innerHTML' });
+        } else if (result.duplicateKey) {
+            showToast(`Duplicate key: ${result.conflictingKey || 'value already exists'}`, true);
+            // Re-enable editing
+            buttons.forEach(b => b.disabled = false);
+            input.disabled = false;
+            input.focus();
+        } else if (result.validationError) {
+            showToast(`Validation error: ${result.validationError}`, true);
+            // Re-enable editing
+            buttons.forEach(b => b.disabled = false);
+            input.disabled = false;
+            input.focus();
+        } else if (result.error) {
+            showToast(result.error, true);
+            cancelEdit();
+        } else {
+            showToast('Update failed', true);
+            cancelEdit();
+        }
+    } catch (e) {
+        console.error('Update error:', e);
+        showToast('Update failed', true);
+        cancelEdit();
+    }
+}
+
+// Cancel editing and restore original cell
+function cancelEdit() {
+    if (!currentEditCell) return;
+
+    currentEditCell.innerHTML = originalCellHTML;
+    currentEditCell.classList.add('truncate', 'max-w-xs');
+    currentEditCell.style.minWidth = '';
+
+    currentEditCell = null;
+    originalCellHTML = null;
+}
+
+// Clear edit state on table refresh and save focus position
+document.body.addEventListener('htmx:beforeSwap', function(e) {
+    if (e.detail.target.id === 'table-container') {
+        // Clear edit state before swap
+        currentEditCell = null;
+        originalCellHTML = null;
+
+        // Save focus position by row key and column name for restoration
+        if (focusedElement) {
+            const row = focusedElement.closest('tr');
+            window._savedTableFocus = {
+                rowKey: row?.dataset.rowKey,
+                colName: focusedElement.dataset.colName
+            };
+        }
+    }
+});
+
+// Re-initialize inline editing after HTMX swap and restore focus
+document.body.addEventListener('htmx:afterSwap', function(e) {
+    if (e.detail.target.id === 'table-container') {
+        // Re-parse column metadata
+        initInlineEditing();
+
+        // Restore focus if we saved a position
+        if (window._savedTableFocus) {
+            const { rowKey, colName } = window._savedTableFocus;
+            window._savedTableFocus = null;
+
+            // Find cell by row key and column name
+            const row = document.querySelector(`tr[data-row-key="${CSS.escape(rowKey)}"]`);
+            if (row) {
+                const cell = row.querySelector(`td[data-col-name="${colName}"]`);
+                if (cell) {
+                    focusCell(cell);
+                    return;
+                }
+            }
+            // Row might have been deleted or moved to different page - clear focus
+            focusCell(null);
+        }
+    }
+});
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    initInlineEditing();
+});
+
+// ============================================================================
+// Column Filters
+// ============================================================================
+
+let activeFilterDropdown = null;
+
+// Convert column name to valid HTML ID
+function sanitizeID(col) {
+    return col.toLowerCase().replace(/\s+/g, '-');
+}
+
+// Initialize filter event handlers via event delegation
+function initFilterHandlers() {
+    // Filter toggle button click handler
+    document.addEventListener('click', function(e) {
+        const toggleBtn = e.target.closest('.filter-toggle-btn');
+        if (toggleBtn) {
+            e.stopPropagation();
+            const colName = toggleBtn.dataset.col;
+            if (!colName) return;
+
+            const dropdownId = 'filter-dropdown-' + sanitizeID(colName);
+            const dropdown = document.getElementById(dropdownId);
+            if (!dropdown) return;
+
+            // Close any other open dropdown
+            if (activeFilterDropdown && activeFilterDropdown !== dropdown) {
+                activeFilterDropdown.classList.add('hidden');
+            }
+
+            // Toggle this dropdown
+            dropdown.classList.toggle('hidden');
+            activeFilterDropdown = dropdown.classList.contains('hidden') ? null : dropdown;
+            return;
+        }
+
+        // Apply button click handler
+        const applyBtn = e.target.closest('.filter-apply-btn');
+        if (applyBtn) {
+            const container = applyBtn.closest('[data-filter-type]');
+            if (container) {
+                applyFilter(container);
+            }
+            return;
+        }
+
+        // Clear button click handler
+        const clearBtn = e.target.closest('.filter-clear-btn');
+        if (clearBtn) {
+            const container = clearBtn.closest('[data-filter-type]');
+            if (container) {
+                clearFilter(container.dataset.col);
+            }
+            return;
+        }
+
+        // Close dropdown when clicking outside
+        if (activeFilterDropdown && !e.target.closest('[id^="filter-dropdown-"]') && !e.target.closest('.filter-toggle-btn')) {
+            activeFilterDropdown.classList.add('hidden');
+            activeFilterDropdown = null;
+        }
+    });
+}
+
+// Apply filter based on type
+function applyFilter(container) {
+    const filterType = container.dataset.filterType;
+    const colName = container.dataset.col;
+    const tableKey = container.dataset.table;
+
+    switch (filterType) {
+        case 'text':
+            applyTextFilter(container, colName, tableKey);
+            break;
+        case 'numeric':
+            applyNumericFilter(container, colName, tableKey);
+            break;
+        case 'date':
+            applyDateFilter(container, colName, tableKey);
+            break;
+        case 'bool':
+            applyBoolFilter(container, colName, tableKey);
+            break;
+        case 'enum':
+            applyEnumFilter(container, colName, tableKey);
+            break;
+    }
+}
+
+// Apply text filter
+function applyTextFilter(container, colName, tableKey) {
+    const opSelect = container.querySelector('.filter-op');
+    const valInput = container.querySelector('.filter-val');
+
+    if (!opSelect || !valInput) return;
+
+    const op = opSelect.value;
+    const val = valInput.value.trim();
+
+    if (!val) {
+        showToast('Please enter a filter value', true);
+        return;
+    }
+
+    navigateWithFilter(colName, op + ':' + val);
+}
+
+// Apply numeric filter (min/max range)
+function applyNumericFilter(container, colName, tableKey) {
+    const minInput = container.querySelector('.filter-min');
+    const maxInput = container.querySelector('.filter-max');
+
+    if (!minInput || !maxInput) return;
+
+    const min = minInput.value.trim();
+    const max = maxInput.value.trim();
+
+    if (!min && !max) {
+        showToast('Please enter a min or max value', true);
+        return;
+    }
+
+    // Build URL with both filters if provided
+    const url = new URL(window.location.href);
+    removeFilterParams(url, colName);
+
+    if (min) {
+        url.searchParams.append('filter[' + colName + ']', 'gte:' + min);
+    }
+    if (max) {
+        url.searchParams.append('filter[' + colName + ']', 'lte:' + max);
+    }
+
+    url.searchParams.set('page', '1');
+
+    htmx.ajax('GET', url.pathname + url.search, {
+        target: '#table-container',
+        swap: 'innerHTML',
+        pushUrl: true
+    });
+
+    closeFilterDropdowns();
+}
+
+// Apply date filter (from/to range)
+function applyDateFilter(container, colName, tableKey) {
+    const fromInput = container.querySelector('.filter-from');
+    const toInput = container.querySelector('.filter-to');
+
+    if (!fromInput || !toInput) return;
+
+    const from = fromInput.value;
+    const to = toInput.value;
+
+    if (!from && !to) {
+        showToast('Please enter a from or to date', true);
+        return;
+    }
+
+    // Build URL with both filters if provided
+    const url = new URL(window.location.href);
+    removeFilterParams(url, colName);
+
+    if (from) {
+        url.searchParams.append('filter[' + colName + ']', 'gte:' + from);
+    }
+    if (to) {
+        url.searchParams.append('filter[' + colName + ']', 'lte:' + to);
+    }
+
+    url.searchParams.set('page', '1');
+
+    htmx.ajax('GET', url.pathname + url.search, {
+        target: '#table-container',
+        swap: 'innerHTML',
+        pushUrl: true
+    });
+
+    closeFilterDropdowns();
+}
+
+// Apply bool filter
+function applyBoolFilter(container, colName, tableKey) {
+    const radios = container.querySelectorAll('.filter-bool-radio');
+    let selectedValue = '';
+
+    radios.forEach(radio => {
+        if (radio.checked) selectedValue = radio.value;
+    });
+
+    if (!selectedValue) {
+        clearFilter(colName);
+        return;
+    }
+
+    navigateWithFilter(colName, 'eq:' + selectedValue);
+}
+
+// Apply enum filter (multiple checkboxes)
+function applyEnumFilter(container, colName, tableKey) {
+    const checkboxes = container.querySelectorAll('.filter-enum-checkbox:checked');
+    const values = Array.from(checkboxes).map(cb => cb.value);
+
+    if (values.length === 0) {
+        clearFilter(colName);
+        return;
+    }
+
+    navigateWithFilter(colName, 'in:' + values.join(','));
+}
+
+// Navigate with a new filter applied
+function navigateWithFilter(colName, filterValue) {
+    const url = new URL(window.location.href);
+    removeFilterParams(url, colName);
+    url.searchParams.append('filter[' + colName + ']', filterValue);
+    url.searchParams.set('page', '1');
+
+    htmx.ajax('GET', url.pathname + url.search, {
+        target: '#table-container',
+        swap: 'innerHTML',
+        pushUrl: true
+    });
+
+    closeFilterDropdowns();
+}
+
+// Clear a specific filter
+function clearFilter(colName) {
+    const url = new URL(window.location.href);
+    removeFilterParams(url, colName);
+    url.searchParams.set('page', '1');
+
+    htmx.ajax('GET', url.pathname + url.search, {
+        target: '#table-container',
+        swap: 'innerHTML',
+        pushUrl: true
+    });
+
+    closeFilterDropdowns();
+}
+
+// Remove all filter params for a column from URL
+function removeFilterParams(url, colName) {
+    const keysToDelete = [];
+    url.searchParams.forEach((value, key) => {
+        if (key === 'filter[' + colName + ']') {
+            keysToDelete.push(key);
+        }
+    });
+    keysToDelete.forEach(key => url.searchParams.delete(key));
+}
+
+// Close all filter dropdowns
+function closeFilterDropdowns() {
+    document.querySelectorAll('[id^="filter-dropdown-"]').forEach(dropdown => {
+        dropdown.classList.add('hidden');
+    });
+    activeFilterDropdown = null;
+}
+
+// Initialize filter handlers on page load
+document.addEventListener('DOMContentLoaded', initFilterHandlers);
+
+// Re-init filters after HTMX swap
+document.body.addEventListener('htmx:afterSwap', function(e) {
+    if (e.detail.target.id === 'table-container') {
+        closeFilterDropdowns();
+    }
+});
+
+// ============================================================================
+// Table Keyboard Navigation
+// ============================================================================
+
+// Focus state
+let focusedCell = null;    // { row: number, col: number }
+let focusedElement = null; // DOM reference
+
+// Inject focus CSS styles
+(function injectFocusStyles() {
+    const style = document.createElement('style');
+    style.textContent = `
+        .cell-focused {
+            outline: 2px solid #3b82f6 !important;
+            outline-offset: -2px;
+            background-color: #eff6ff !important;
+        }
+        td.editable-cell:focus {
+            outline: 2px solid #3b82f6;
+            outline-offset: -2px;
+        }
+    `;
+    document.head.appendChild(style);
+})();
+
+// Get table dimensions (only editable cells)
+function getTableDimensions() {
+    const rows = document.querySelectorAll('#table-container tbody tr');
+    const firstRow = rows[0];
+    const cols = firstRow ? firstRow.querySelectorAll('td.editable-cell').length : 0;
+    return { rows: rows.length, cols };
+}
+
+// Get cell at position
+function getCellAt(row, col) {
+    const rows = document.querySelectorAll('#table-container tbody tr');
+    if (row < 0 || row >= rows.length) return null;
+    const cells = rows[row].querySelectorAll('td.editable-cell');
+    if (col < 0 || col >= cells.length) return null;
+    return cells[col];
+}
+
+// Get position of cell
+function getCellPosition(cell) {
+    const row = cell.closest('tr');
+    const rows = Array.from(document.querySelectorAll('#table-container tbody tr'));
+    const rowIndex = rows.indexOf(row);
+    const cells = Array.from(row.querySelectorAll('td.editable-cell'));
+    const colIndex = cells.indexOf(cell);
+    return { row: rowIndex, col: colIndex };
+}
+
+// Apply focus to cell
+function focusCell(cell) {
+    // Remove previous focus
+    if (focusedElement) {
+        focusedElement.classList.remove('cell-focused');
+        focusedElement.removeAttribute('tabindex');
+    }
+
+    if (!cell) {
+        focusedCell = null;
+        focusedElement = null;
+        return;
+    }
+
+    // Apply new focus
+    cell.classList.add('cell-focused');
+    cell.setAttribute('tabindex', '0');
+    cell.focus();
+
+    focusedElement = cell;
+    focusedCell = getCellPosition(cell);
+
+    // Scroll into view if needed
+    cell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+// Handle table navigation keydown
+function handleTableKeydown(e) {
+    // Skip if in input (unless it's the edit input which has its own handler)
+    if (e.target.matches('input:not(.edit-input), textarea, select:not(.edit-input)')) {
+        return;
+    }
+
+    // Skip if currently editing
+    if (currentEditCell) {
+        return;
+    }
+
+    // Skip if modal is open
+    if (document.getElementById('delete-modal') && !document.getElementById('delete-modal').classList.contains('hidden')) {
+        return;
+    }
+
+    const { rows, cols } = getTableDimensions();
+    if (rows === 0 || cols === 0) return;
+
+    // Initialize focus if none and navigation key pressed
+    if (!focusedCell) {
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'Tab'].includes(e.key)) {
+            // Only capture if focus is on the table or body
+            if (e.target === document.body || e.target.closest('#table-container')) {
+                e.preventDefault();
+                focusCell(getCellAt(0, 0));
+            }
+        }
+        return;
+    }
+
+    let { row, col } = focusedCell;
+    let handled = true;
+
+    switch (e.key) {
+        case 'ArrowUp':
+            row = Math.max(0, row - 1);
+            break;
+        case 'ArrowDown':
+            row = Math.min(rows - 1, row + 1);
+            break;
+        case 'ArrowLeft':
+            col = Math.max(0, col - 1);
+            break;
+        case 'ArrowRight':
+            col = Math.min(cols - 1, col + 1);
+            break;
+        case 'Tab':
+            if (e.shiftKey) {
+                col--;
+                if (col < 0) {
+                    col = cols - 1;
+                    row--;
+                }
+                if (row < 0) {
+                    handled = false; // Let Tab leave table
+                    focusCell(null);
+                }
+            } else {
+                col++;
+                if (col >= cols) {
+                    col = 0;
+                    row++;
+                }
+                if (row >= rows) {
+                    handled = false; // Let Tab leave table
+                    focusCell(null);
+                }
+            }
+            break;
+        case 'Home':
+            if (e.ctrlKey) {
+                row = 0;
+                col = 0;
+            } else {
+                col = 0;
+            }
+            break;
+        case 'End':
+            if (e.ctrlKey) {
+                row = rows - 1;
+                col = cols - 1;
+            } else {
+                col = cols - 1;
+            }
+            break;
+        case 'Enter':
+            // Start editing the focused cell
+            const cell = getCellAt(row, col);
+            if (cell) {
+                startEdit(cell);
+            }
+            break;
+        case 'Escape':
+            focusCell(null); // Clear focus
+            break;
+        default:
+            handled = false;
+    }
+
+    if (handled) {
+        e.preventDefault();
+        if (e.key !== 'Enter' && e.key !== 'Escape') {
+            focusCell(getCellAt(row, col));
+        }
+    }
+}
+
+// Initialize table navigation
+function initTableNavigation() {
+    document.addEventListener('keydown', handleTableKeydown);
+
+    // Click on cell to focus it (single click)
+    document.addEventListener('click', function(e) {
+        const cell = e.target.closest('td.editable-cell');
+        if (cell && !currentEditCell) {
+            focusCell(cell);
+        } else if (!e.target.closest('#table-container') && !e.target.closest('.modal')) {
+            // Clear focus when clicking outside table
+            focusCell(null);
+        }
+    });
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', initTableNavigation);

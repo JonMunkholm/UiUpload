@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/JonMunkholm/TUI/internal/core"
@@ -268,7 +269,7 @@ func (s *Server) handleDownloadTemplate(w http.ResponseWriter, r *http.Request) 
 }
 
 // handleExportData exports table data as a CSV file.
-// Respects search filter if provided.
+// Respects search and column filters if provided.
 func (s *Server) handleExportData(w http.ResponseWriter, r *http.Request) {
 	tableKey := chi.URLParam(r, "tableKey")
 	if tableKey == "" {
@@ -284,9 +285,10 @@ func (s *Server) handleExportData(w http.ResponseWriter, r *http.Request) {
 
 	// Parse search filter (if any)
 	search := r.URL.Query().Get("search")
+	filters := parseFilters(r, def)
 
-	// Fetch data (filtered if search provided)
-	data, err := s.service.GetAllTableData(r.Context(), tableKey, search)
+	// Fetch data (filtered if search or filters provided)
+	data, err := s.service.GetAllTableData(r.Context(), tableKey, search, filters)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -426,19 +428,84 @@ func (s *Server) handleTableView(w http.ResponseWriter, r *http.Request) {
 	sort := r.URL.Query().Get("sort")
 	dir := r.URL.Query().Get("dir")
 	search := r.URL.Query().Get("search")
+	filters := parseFilters(r, def)
 
 	// Fetch data
-	data, err := s.service.GetTableData(r.Context(), tableKey, page, 50, sort, dir, search)
+	data, err := s.service.GetTableData(r.Context(), tableKey, page, 50, sort, dir, search, filters)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
+	// Build column metadata for frontend inline editing
+	columnMeta := buildColumnMeta(def)
+
 	// Check if HTMX request (partial update) or full page load
 	if r.Header.Get("HX-Request") == "true" {
-		templates.TablePartial(tableKey, def.Info, data).Render(r.Context(), w)
+		templates.TablePartial(tableKey, def.Info, data, columnMeta).Render(r.Context(), w)
 	} else {
-		templates.TableView(tableKey, def.Info, data).Render(r.Context(), w)
+		templates.TableView(tableKey, def.Info, data, columnMeta).Render(r.Context(), w)
+	}
+}
+
+// buildColumnMeta builds column metadata from a table definition.
+func buildColumnMeta(def core.TableDefinition) []templates.ColumnMeta {
+	// Create a set of unique key columns for quick lookup
+	uniqueKeySet := make(map[string]bool)
+	for _, col := range def.Info.UniqueKey {
+		uniqueKeySet[col] = true
+	}
+
+	// Build a map from display name to field spec
+	specMap := make(map[string]core.FieldSpec)
+	for _, spec := range def.FieldSpecs {
+		specMap[spec.Name] = spec
+	}
+
+	meta := make([]templates.ColumnMeta, len(def.Info.Columns))
+	for i, col := range def.Info.Columns {
+		cm := templates.ColumnMeta{
+			Name:        col,
+			IsUniqueKey: uniqueKeySet[col],
+		}
+
+		// Get field spec if exists
+		if spec, ok := specMap[col]; ok {
+			cm.DBColumn = spec.DBColumn
+			if cm.DBColumn == "" {
+				cm.DBColumn = col
+			}
+			cm.Type = fieldTypeToString(spec.Type)
+			cm.EnumValues = spec.EnumValues
+			cm.AllowEmpty = spec.AllowEmpty
+		} else {
+			// Default to text
+			cm.DBColumn = col
+			cm.Type = "text"
+			cm.AllowEmpty = true
+		}
+
+		meta[i] = cm
+	}
+
+	return meta
+}
+
+// fieldTypeToString converts a FieldType to a string for JSON.
+func fieldTypeToString(ft core.FieldType) string {
+	switch ft {
+	case core.FieldText:
+		return "text"
+	case core.FieldNumeric:
+		return "numeric"
+	case core.FieldDate:
+		return "date"
+	case core.FieldBool:
+		return "bool"
+	case core.FieldEnum:
+		return "enum"
+	default:
+		return "text"
 	}
 }
 
@@ -453,6 +520,105 @@ func parseIntParam(r *http.Request, name string, defaultVal int) int {
 		return defaultVal
 	}
 	return i
+}
+
+// parseFilters extracts column filters from URL query parameters.
+// Format: filter[column_name]=operator:value
+// Example: filter[Amount]=gte:1000
+func parseFilters(r *http.Request, def core.TableDefinition) core.FilterSet {
+	var filters []core.ColumnFilter
+
+	// Build a map from display name to field spec for quick lookup
+	specMap := make(map[string]core.FieldSpec)
+	for _, spec := range def.FieldSpecs {
+		specMap[strings.ToLower(spec.Name)] = spec
+	}
+
+	for key, values := range r.URL.Query() {
+		// Check for filter[column] format
+		if !strings.HasPrefix(key, "filter[") || !strings.HasSuffix(key, "]") {
+			continue
+		}
+
+		// Extract column name
+		colName := key[7 : len(key)-1]
+		if colName == "" {
+			continue
+		}
+
+		// Find the column in the table definition
+		spec, ok := specMap[strings.ToLower(colName)]
+		if !ok {
+			continue
+		}
+
+		// Parse each value (multiple filters on same column allowed for ranges)
+		for _, val := range values {
+			// Parse "operator:value" format
+			parts := strings.SplitN(val, ":", 2)
+			if len(parts) != 2 {
+				continue
+			}
+
+			op := core.FilterOperator(parts[0])
+			filterVal := parts[1]
+
+			// Skip empty filter values
+			if filterVal == "" {
+				continue
+			}
+
+			// Validate operator for column type
+			if !isValidOperator(op, spec.Type) {
+				continue
+			}
+
+			// Determine DB column name
+			dbCol := spec.DBColumn
+			if dbCol == "" {
+				dbCol = strings.ToLower(strings.ReplaceAll(spec.Name, " ", "_"))
+			}
+
+			filters = append(filters, core.ColumnFilter{
+				Column:   spec.Name,
+				DBColumn: dbCol,
+				Operator: op,
+				Value:    filterVal,
+				Type:     spec.Type,
+			})
+		}
+	}
+
+	return core.FilterSet{Filters: filters}
+}
+
+// isValidOperator checks if an operator is valid for a given field type.
+func isValidOperator(op core.FilterOperator, ft core.FieldType) bool {
+	switch ft {
+	case core.FieldText:
+		switch op {
+		case core.OpContains, core.OpEquals, core.OpStartsWith, core.OpEndsWith:
+			return true
+		}
+	case core.FieldNumeric:
+		switch op {
+		case core.OpEquals, core.OpGreaterEq, core.OpLessEq, core.OpGreater, core.OpLess:
+			return true
+		}
+	case core.FieldDate:
+		switch op {
+		case core.OpEquals, core.OpGreaterEq, core.OpLessEq:
+			return true
+		}
+	case core.FieldBool:
+		return op == core.OpEquals
+	case core.FieldEnum:
+		switch op {
+		case core.OpEquals, core.OpIn:
+			return true
+		}
+	}
+	return false
 }
 
 // handleCheckDuplicates checks if provided keys already exist in the database.
@@ -526,4 +692,43 @@ func (s *Server) handleDeleteRows(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]int{"deleted": deleted})
+}
+
+// handleUpdateCell updates a single cell value.
+func (s *Server) handleUpdateCell(w http.ResponseWriter, r *http.Request) {
+	tableKey := chi.URLParam(r, "tableKey")
+	if tableKey == "" {
+		writeError(w, http.StatusBadRequest, "missing table key")
+		return
+	}
+
+	// Parse request body
+	var req struct {
+		RowKey string `json:"rowKey"`
+		Column string `json:"column"`
+		Value  string `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.RowKey == "" || req.Column == "" {
+		writeError(w, http.StatusBadRequest, "rowKey and column are required")
+		return
+	}
+
+	// Update cell
+	result, err := s.service.UpdateCell(r.Context(), tableKey, core.UpdateCellRequest{
+		RowKey: req.RowKey,
+		Column: req.Column,
+		Value:  req.Value,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
 }
