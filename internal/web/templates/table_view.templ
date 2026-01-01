@@ -344,23 +344,12 @@ templ SortableHeader(tableKey, col string, data *core.TableDataResult, columnMet
 			<!-- Sortable part -->
 			<div
 				class="flex items-center gap-1 cursor-pointer hover:text-gray-900"
-				hx-get={ buildSortURL(tableKey, col, data) }
-				hx-target="#table-container"
-				hx-swap="innerHTML"
-				hx-push-url="true"
+				data-col={ col }
+				data-table={ tableKey }
+				onclick="handleSortClick(event, this)"
 			>
 				<span>{ col }</span>
-				if data.SortColumn == col {
-					if data.SortDir == "asc" {
-						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path>
-						</svg>
-					} else {
-						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-						</svg>
-					}
-				}
+				@SortIndicator(col, data.Sorts)
 			</div>
 
 			<!-- Filter icon -->
@@ -379,6 +368,28 @@ templ SortableHeader(tableKey, col string, data *core.TableDataResult, columnMet
 			@FilterDropdown(tableKey, col, data, columnMeta)
 		</div>
 	</th>
+}
+
+// SortIndicator shows the sort order and direction for a column.
+templ SortIndicator(col string, sorts []core.SortSpec) {
+	for i, sort := range sorts {
+		if sort.Column == col {
+			<span class="flex items-center">
+				if len(sorts) > 1 {
+					<span class="text-xs text-blue-500 font-bold mr-0.5">{ fmt.Sprintf("%d", i+1) }</span>
+				}
+				if sort.Dir == "asc" {
+					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path>
+					</svg>
+				} else {
+					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+					</svg>
+				}
+			</span>
+		}
+	}
 }
 
 // filterIconClass returns CSS classes for the filter icon based on active state.
@@ -760,12 +771,25 @@ func buildFilterParams(data *core.TableDataResult) string {
 
 // buildSortURL builds the URL for sorting by a column.
 // Resets to page 1 and preserves search query and filters.
+// buildSortParams builds the sort query params from Sorts slice.
+func buildSortParams(sorts []core.SortSpec) string {
+	if len(sorts) == 0 {
+		return ""
+	}
+	var cols, dirs []string
+	for _, s := range sorts {
+		cols = append(cols, s.Column)
+		dirs = append(dirs, s.Dir)
+	}
+	return "&sort=" + url.QueryEscape(strings.Join(cols, ",")) + "&dir=" + strings.Join(dirs, ",")
+}
+
 func buildSortURL(tableKey, col string, data *core.TableDataResult) string {
 	dir := "asc"
 	if data.SortColumn == col && data.SortDir == "asc" {
 		dir = "desc"
 	}
-	base := fmt.Sprintf("/table/%s?page=1&sort=%s&dir=%s", tableKey, col, dir)
+	base := fmt.Sprintf("/table/%s?page=1&sort=%s&dir=%s", tableKey, url.QueryEscape(col), dir)
 	if data.SearchQuery != "" {
 		base += "&search=" + url.QueryEscape(data.SearchQuery)
 	}
@@ -775,7 +799,8 @@ func buildSortURL(tableKey, col string, data *core.TableDataResult) string {
 // buildPageURL builds the URL for a specific page.
 // Preserves sort, search, and filters.
 func buildPageURL(tableKey string, page int, data *core.TableDataResult) string {
-	base := fmt.Sprintf("/table/%s?page=%d&sort=%s&dir=%s", tableKey, page, data.SortColumn, data.SortDir)
+	base := fmt.Sprintf("/table/%s?page=%d", tableKey, page)
+	base += buildSortParams(data.Sorts)
 	if data.SearchQuery != "" {
 		base += "&search=" + url.QueryEscape(data.SearchQuery)
 	}
@@ -785,7 +810,8 @@ func buildPageURL(tableKey string, page int, data *core.TableDataResult) string 
 // buildSearchURL builds the base URL for search submissions.
 // Resets to page 1 and preserves sort and filters.
 func buildSearchURL(tableKey string, data *core.TableDataResult) string {
-	base := fmt.Sprintf("/table/%s?page=1&sort=%s&dir=%s", tableKey, data.SortColumn, data.SortDir)
+	base := fmt.Sprintf("/table/%s?page=1", tableKey)
+	base += buildSortParams(data.Sorts)
 	return base + buildFilterParams(data)
 }
 

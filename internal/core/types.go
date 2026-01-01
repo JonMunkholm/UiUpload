@@ -170,3 +170,9 @@ type ColumnAggregation struct {
 
 // Aggregations maps column names to their aggregation results.
 type Aggregations map[string]*ColumnAggregation
+
+// SortSpec represents a single sort column and direction.
+type SortSpec struct {
+	Column string // Display column name
+	Dir    string // "asc" or "desc"
+}

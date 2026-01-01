@@ -406,8 +406,9 @@ type TableDataResult struct {
 	Page          int
 	PageSize      int
 	TotalPages    int
-	SortColumn    string
-	SortDir       string
+	Sorts         []SortSpec        // Ordered list of sort specifications (max 2)
+	SortColumn    string            // Primary sort column (first in Sorts) - kept for backwards compat
+	SortDir       string            // Primary sort direction - kept for backwards compat
 	SearchQuery   string            // Current search term, if any
 	ActiveFilters map[string]string // Active column filters: column -> "op:value"
 	Aggregations  Aggregations      // Column aggregations for numeric columns
@@ -489,7 +490,7 @@ func buildSingleFilter(f ColumnFilter, argIdx int) (string, []interface{}, int) 
 }
 
 // GetTableData fetches paginated, sorted, and optionally filtered data from any table.
-func (s *Service) GetTableData(ctx context.Context, tableKey string, page, pageSize int, sortColumn, sortDir, searchQuery string, filters FilterSet) (*TableDataResult, error) {
+func (s *Service) GetTableData(ctx context.Context, tableKey string, page, pageSize int, sorts []SortSpec, searchQuery string, filters FilterSet) (*TableDataResult, error) {
 	def, ok := Get(tableKey)
 	if !ok {
 		return nil, fmt.Errorf("unknown table: %s", tableKey)
@@ -573,31 +574,53 @@ func (s *Service) GetTableData(ctx context.Context, tableKey string, page, pageS
 	}
 	offset := (page - 1) * pageSize
 
-	// Validate sort column
-	if sortColumn == "" || !containsColumn(displayColumns, sortColumn) {
-		sortColumn = displayColumns[0]
-	}
-	if sortDir != "asc" && sortDir != "desc" {
-		sortDir = "asc"
-	}
-
-	// Find DB column name for sort column
-	sortDBColumn := toDBColumnName(sortColumn)
-	for _, spec := range def.FieldSpecs {
-		if spec.Name == sortColumn && spec.DBColumn != "" {
-			sortDBColumn = spec.DBColumn
+	// Build ORDER BY clause from sorts (max 2 levels)
+	var validSorts []SortSpec
+	var orderParts []string
+	for _, sort := range sorts {
+		if sort.Column == "" || !containsColumn(displayColumns, sort.Column) {
+			continue
+		}
+		dir := strings.ToLower(sort.Dir)
+		if dir != "asc" && dir != "desc" {
+			dir = "asc"
+		}
+		// Find DB column name
+		sortDBColumn := toDBColumnName(sort.Column)
+		for _, spec := range def.FieldSpecs {
+			if spec.Name == sort.Column && spec.DBColumn != "" {
+				sortDBColumn = spec.DBColumn
+				break
+			}
+		}
+		orderParts = append(orderParts, fmt.Sprintf("%s %s", quoteIdentifier(sortDBColumn), dir))
+		validSorts = append(validSorts, SortSpec{Column: sort.Column, Dir: dir})
+		if len(validSorts) >= 2 { // Max 2 sort levels
 			break
 		}
 	}
 
-	// Build SELECT query with WHERE clause
+	// Default to first column if no valid sorts
+	if len(orderParts) == 0 {
+		defaultCol := displayColumns[0]
+		defaultDBCol := toDBColumnName(defaultCol)
+		for _, spec := range def.FieldSpecs {
+			if spec.Name == defaultCol && spec.DBColumn != "" {
+				defaultDBCol = spec.DBColumn
+				break
+			}
+		}
+		orderParts = append(orderParts, fmt.Sprintf("%s asc", quoteIdentifier(defaultDBCol)))
+		validSorts = append(validSorts, SortSpec{Column: defaultCol, Dir: "asc"})
+	}
+
+	// Build SELECT query with WHERE and ORDER BY clauses
 	query := fmt.Sprintf(
-		"SELECT %s FROM %s%s ORDER BY %s %s LIMIT $%d OFFSET $%d",
+		"SELECT %s FROM %s%s ORDER BY %s LIMIT $%d OFFSET $%d",
 		strings.Join(quotedCols, ", "),
 		quoteIdentifier(tableKey),
 		whereClause,
-		quoteIdentifier(sortDBColumn),
-		sortDir,
+		strings.Join(orderParts, ", "),
 		argIndex,
 		argIndex+1,
 	)
@@ -635,14 +658,23 @@ func (s *Service) GetTableData(ctx context.Context, tableKey string, page, pageS
 		activeFilters[f.Column] = string(f.Operator) + ":" + f.Value
 	}
 
+	// Extract primary sort for backwards compatibility
+	primarySortCol := ""
+	primarySortDir := ""
+	if len(validSorts) > 0 {
+		primarySortCol = validSorts[0].Column
+		primarySortDir = validSorts[0].Dir
+	}
+
 	result := &TableDataResult{
 		Rows:          resultRows,
 		TotalRows:     totalRows,
 		Page:          page,
 		PageSize:      pageSize,
 		TotalPages:    totalPages,
-		SortColumn:    sortColumn,
-		SortDir:       sortDir,
+		Sorts:         validSorts,
+		SortColumn:    primarySortCol,
+		SortDir:       primarySortDir,
 		SearchQuery:   searchQuery,
 		ActiveFilters: activeFilters,
 	}

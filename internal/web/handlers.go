@@ -425,13 +425,12 @@ func (s *Server) handleTableView(w http.ResponseWriter, r *http.Request) {
 
 	// Parse query parameters
 	page := parseIntParam(r, "page", 1)
-	sort := r.URL.Query().Get("sort")
-	dir := r.URL.Query().Get("dir")
+	sorts := parseSorts(r)
 	search := r.URL.Query().Get("search")
 	filters := parseFilters(r, def)
 
 	// Fetch data
-	data, err := s.service.GetTableData(r.Context(), tableKey, page, 50, sort, dir, search, filters)
+	data, err := s.service.GetTableData(r.Context(), tableKey, page, 50, sorts, search, filters)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -520,6 +519,41 @@ func parseIntParam(r *http.Request, name string, defaultVal int) int {
 		return defaultVal
 	}
 	return i
+}
+
+// parseSorts parses comma-separated sort parameters from URL.
+// Format: ?sort=Column1,Column2&dir=asc,desc
+// Returns up to 2 sort specifications.
+func parseSorts(r *http.Request) []core.SortSpec {
+	sortStr := r.URL.Query().Get("sort")
+	dirStr := r.URL.Query().Get("dir")
+
+	if sortStr == "" {
+		return nil
+	}
+
+	cols := strings.Split(sortStr, ",")
+	dirs := strings.Split(dirStr, ",")
+
+	var sorts []core.SortSpec
+	for i, col := range cols {
+		col = strings.TrimSpace(col)
+		if col == "" {
+			continue
+		}
+		dir := "asc"
+		if i < len(dirs) {
+			d := strings.TrimSpace(dirs[i])
+			if d == "desc" {
+				dir = "desc"
+			}
+		}
+		sorts = append(sorts, core.SortSpec{Column: col, Dir: dir})
+		if len(sorts) >= 2 { // Max 2 sort levels
+			break
+		}
+	}
+	return sorts
 }
 
 // parseFilters extracts column filters from URL query parameters.

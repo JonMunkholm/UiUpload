@@ -384,7 +384,7 @@ document.body.addEventListener('htmx:afterSwap', function(e) {
 });
 
 // ============================================================================
-// Sort Persistence Feature
+// Sort Persistence Feature (Multi-Column Sort)
 // ============================================================================
 
 // Get localStorage key for a table's sort preference
@@ -392,22 +392,148 @@ function getSortStorageKey(tableKey) {
     return 'sort_' + tableKey;
 }
 
-// Get saved sort from localStorage
-function getSavedSort(tableKey) {
+// Get saved sorts from localStorage (returns array of {column, dir})
+function getSavedSorts(tableKey) {
     const stored = localStorage.getItem(getSortStorageKey(tableKey));
     if (stored) {
         try {
-            return JSON.parse(stored);
+            const parsed = JSON.parse(stored);
+            // Handle legacy single-sort format
+            if (parsed && parsed.column) {
+                return [{ column: parsed.column, dir: parsed.dir }];
+            }
+            // New array format
+            if (Array.isArray(parsed)) {
+                return parsed;
+            }
         } catch (e) {
-            return null;
+            return [];
         }
     }
-    return null;
+    return [];
 }
 
-// Save sort preference to localStorage
-function saveSort(tableKey, column, dir) {
-    localStorage.setItem(getSortStorageKey(tableKey), JSON.stringify({ column, dir }));
+// Save sorts to localStorage (array format)
+function saveSorts(tableKey, sorts) {
+    localStorage.setItem(getSortStorageKey(tableKey), JSON.stringify(sorts));
+}
+
+// Get current sorts from URL
+function getCurrentSorts() {
+    const url = new URL(window.location.href);
+    const sortStr = url.searchParams.get('sort') || '';
+    const dirStr = url.searchParams.get('dir') || '';
+
+    if (!sortStr) return [];
+
+    const cols = sortStr.split(',');
+    const dirs = dirStr.split(',');
+
+    const sorts = [];
+    for (let i = 0; i < cols.length && i < 2; i++) {
+        const col = cols[i].trim();
+        if (col) {
+            sorts.push({
+                column: col,
+                dir: (dirs[i] || 'asc').trim()
+            });
+        }
+    }
+    return sorts;
+}
+
+// Toggle sort direction
+function toggleDir(dir) {
+    return dir === 'asc' ? 'desc' : 'asc';
+}
+
+// Build sort URL from sorts array
+function buildSortUrl(tableKey, sorts, searchQuery, filterParams) {
+    if (sorts.length === 0) {
+        return `/table/${tableKey}?page=1`;
+    }
+
+    const cols = sorts.map(s => s.column).join(',');
+    const dirs = sorts.map(s => s.dir).join(',');
+
+    let url = `/table/${tableKey}?page=1&sort=${encodeURIComponent(cols)}&dir=${dirs}`;
+
+    if (searchQuery) {
+        url += '&search=' + encodeURIComponent(searchQuery);
+    }
+
+    if (filterParams) {
+        url += filterParams;
+    }
+
+    return url;
+}
+
+// Get current search query from URL
+function getCurrentSearch() {
+    const url = new URL(window.location.href);
+    return url.searchParams.get('search') || '';
+}
+
+// Get current filter params from URL (preserves filter[...] params)
+function getCurrentFilterParams() {
+    const url = new URL(window.location.href);
+    let filterParams = '';
+    url.searchParams.forEach((value, key) => {
+        if (key.startsWith('filter[')) {
+            filterParams += '&' + encodeURIComponent(key) + '=' + encodeURIComponent(value);
+        }
+    });
+    return filterParams;
+}
+
+// Handle sort click with Shift detection
+function handleSortClick(event, element) {
+    event.preventDefault();
+
+    const col = element.dataset.col;
+    const tableKey = element.dataset.table;
+    const isShiftClick = event.shiftKey;
+
+    const currentSorts = getCurrentSorts();
+    let newSorts;
+
+    if (isShiftClick && currentSorts.length > 0) {
+        // Shift+Click: add as secondary sort
+        const primary = currentSorts[0];
+        if (primary.column === col) {
+            // Shift+clicking primary - just toggle direction
+            newSorts = [{ column: col, dir: toggleDir(primary.dir) }];
+        } else {
+            // Check if clicking on existing secondary
+            if (currentSorts.length > 1 && currentSorts[1].column === col) {
+                // Toggle secondary direction
+                newSorts = [primary, { column: col, dir: toggleDir(currentSorts[1].dir) }];
+            } else {
+                // Add as new secondary (or replace existing secondary)
+                newSorts = [primary, { column: col, dir: 'asc' }];
+            }
+        }
+    } else {
+        // Regular click - replace sort
+        const existing = currentSorts.find(s => s.column === col);
+        const dir = existing ? toggleDir(existing.dir) : 'asc';
+        newSorts = [{ column: col, dir }];
+    }
+
+    // Build URL and navigate
+    const searchQuery = getCurrentSearch();
+    const filterParams = getCurrentFilterParams();
+    const url = buildSortUrl(tableKey, newSorts, searchQuery, filterParams);
+
+    htmx.ajax('GET', url, {
+        target: '#table-container',
+        swap: 'innerHTML',
+        pushUrl: true
+    });
+
+    // Save to localStorage
+    saveSorts(tableKey, newSorts);
 }
 
 // On page load: redirect to saved sort if no URL sort params
@@ -419,31 +545,17 @@ function initSortPersistence() {
     const hasUrlSort = url.searchParams.has('sort');
 
     if (!hasUrlSort) {
-        const saved = getSavedSort(tableKey);
-        if (saved) {
-            url.searchParams.set('sort', saved.column);
-            url.searchParams.set('dir', saved.dir);
+        const saved = getSavedSorts(tableKey);
+        if (saved.length > 0) {
+            const cols = saved.map(s => s.column).join(',');
+            const dirs = saved.map(s => s.dir).join(',');
+            url.searchParams.set('sort', cols);
+            url.searchParams.set('dir', dirs);
             url.searchParams.set('page', '1');
             window.location.replace(url.toString());
         }
     }
 }
-
-// Save sort when HTMX request includes sort params
-document.body.addEventListener('htmx:configRequest', function(e) {
-    const tableKey = getTableKey();
-    if (!tableKey) return;
-
-    const path = e.detail.path;
-    if (path.includes('/table/' + tableKey) && path.includes('sort=')) {
-        const url = new URL(path, window.location.origin);
-        const column = url.searchParams.get('sort');
-        const dir = url.searchParams.get('dir');
-        if (column && dir) {
-            saveSort(tableKey, column, dir);
-        }
-    }
-});
 
 // ============================================================================
 // Saved Views Feature
