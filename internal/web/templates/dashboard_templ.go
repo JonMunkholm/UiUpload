@@ -459,7 +459,7 @@ func TableCard(data TableCardData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "\" hx-trigger=\"toggle from:parent once\" hx-swap=\"innerHTML\"><span class=\"text-xs text-gray-400\">Loading...</span></div></details></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "\" hx-trigger=\"toggle once from:closest details\" hx-swap=\"innerHTML\"><span class=\"text-xs text-gray-400\">Loading...</span></div></details></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

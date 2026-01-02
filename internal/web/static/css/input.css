@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Enable class-based dark mode (using .dark class on html element) */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @source "../../templates/**/*.templ";
 @source "../../templates/**/*_templ.go";
 @source "../js/app.js";

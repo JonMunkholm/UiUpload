@@ -68,6 +68,16 @@ function toggleTheme() {
     applyTheme(newTheme);
 }
 
+// Initialize theme on page load (backup to inline script in layout)
+document.addEventListener('DOMContentLoaded', function() {
+    applyTheme(getSavedTheme());
+});
+
+// Ensure theme persists after HTMX full-page navigations
+document.body.addEventListener('htmx:afterSettle', function() {
+    applyTheme(getSavedTheme());
+});
+
 // ============================================================================
 // UPLOAD MODAL HANDLING
 // ============================================================================
@@ -1385,7 +1395,8 @@ async function fetchMatchingTemplates(tableKey, csvHeaders) {
         const headersParam = csvHeaders.map(h => encodeURIComponent(h)).join(',');
         const response = await fetch(`/api/import-templates/${encodeURIComponent(tableKey)}/match?headers=${headersParam}`);
         if (!response.ok) return [];
-        return await response.json();
+        const result = await response.json();
+        return Array.isArray(result) ? result : [];
     } catch (e) {
         console.error('Failed to fetch matching templates:', e);
         return [];
@@ -3339,19 +3350,41 @@ function showBulkEditModal() {
 function hideBulkEditModal() {
     hideModal('bulk-edit-modal');
 
-    // Clear value container
+    // Clear value container and hide wrapper
     const valueContainer = document.getElementById('bulk-edit-value-container');
+    const valueWrapper = document.getElementById('bulk-edit-value-wrapper');
     if (valueContainer) valueContainer.innerHTML = '';
+    if (valueWrapper) valueWrapper.classList.add('hidden');
 
     // Reset column dropdown
     const columnSelect = document.getElementById('bulk-edit-column');
     if (columnSelect) columnSelect.selectedIndex = 0;
+
+    // Disable submit button
+    const submitBtn = document.getElementById('bulk-edit-submit');
+    if (submitBtn) submitBtn.disabled = true;
 }
 
 // Populate column dropdown with editable columns
 function populateBulkEditColumns() {
     const columnSelect = document.getElementById('bulk-edit-column');
-    if (!columnSelect || !columnsMeta) return;
+    if (!columnSelect) return;
+
+    // Re-parse column metadata if not available
+    if (!columnsMeta || columnsMeta.length === 0) {
+        const container = document.getElementById('table-container');
+        if (container && container.dataset.columnsMeta) {
+            try {
+                columnsMeta = JSON.parse(container.dataset.columnsMeta);
+            } catch (e) {
+                console.error('Failed to parse columns meta:', e);
+                columnsMeta = [];
+            }
+        }
+    }
+
+    // Still no metadata, can't populate
+    if (!columnsMeta || columnsMeta.length === 0) return;
 
     // Clear existing options except the placeholder
     columnSelect.innerHTML = '<option value="">Select a column...</option>';
@@ -3371,6 +3404,7 @@ function populateBulkEditColumns() {
 function onBulkEditColumnChange() {
     const columnSelect = document.getElementById('bulk-edit-column');
     const valueContainer = document.getElementById('bulk-edit-value-container');
+    const valueWrapper = document.getElementById('bulk-edit-value-wrapper');
     const submitBtn = document.getElementById('bulk-edit-submit');
 
     if (!columnSelect || !valueContainer) return;
@@ -3378,6 +3412,7 @@ function onBulkEditColumnChange() {
     const colName = columnSelect.value;
     if (!colName) {
         valueContainer.innerHTML = '';
+        if (valueWrapper) valueWrapper.classList.add('hidden');
         if (submitBtn) submitBtn.disabled = true;
         return;
     }
@@ -3385,16 +3420,17 @@ function onBulkEditColumnChange() {
     const meta = getColumnMeta(colName);
     if (!meta) {
         valueContainer.innerHTML = '';
+        if (valueWrapper) valueWrapper.classList.add('hidden');
         if (submitBtn) submitBtn.disabled = true;
         return;
     }
 
     // Build appropriate input based on column type
     const inputHTML = buildBulkEditInput(meta);
-    valueContainer.innerHTML = `
-        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">New Value</label>
-        ${inputHTML}
-    `;
+    valueContainer.innerHTML = inputHTML;
+
+    // Show the value wrapper
+    if (valueWrapper) valueWrapper.classList.remove('hidden');
 
     // Enable submit button
     if (submitBtn) submitBtn.disabled = false;

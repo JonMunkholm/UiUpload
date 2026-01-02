@@ -135,7 +135,8 @@ func (s *Service) MatchTemplates(ctx context.Context, tableKey string, csvHeader
 		return nil, err
 	}
 
-	var matches []TemplateMatch
+	// Initialize as empty slice (not nil) so JSON encodes as [] instead of null
+	matches := []TemplateMatch{}
 	for _, t := range templates {
 		score := matchTemplateHeaders(csvHeaders, t.CSVHeaders)
 		if score >= TemplateMatchThreshold {

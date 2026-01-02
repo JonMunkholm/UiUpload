@@ -242,7 +242,7 @@ templ TableCard(data TableCardData) {
 			</summary>
 			<div
 				hx-get={ "/api/history/" + data.Info.Key }
-				hx-trigger="toggle from:parent once"
+				hx-trigger="toggle once from:closest details"
 				hx-swap="innerHTML"
 			>
 				<span class="text-xs text-gray-400">Loading...</span>
