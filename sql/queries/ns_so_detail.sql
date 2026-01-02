@@ -16,9 +16,13 @@ INSERT INTO ns_so_detail (
     quantity,
     unit_price,
     amount_gross,
-    terms_days_till_net_due
+    terms_days_till_net_due,
+    upload_id
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17);
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18);
+
+-- name: DeleteNsSoDetailByUploadId :execrows
+DELETE FROM ns_so_detail WHERE upload_id = $1;
 
 -- name: ResetNsSoDetail :exec
 DELETE FROM ns_so_detail;

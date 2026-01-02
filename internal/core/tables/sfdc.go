@@ -6,6 +6,7 @@ import (
 
 	"github.com/JonMunkholm/TUI/internal/core"
 	db "github.com/JonMunkholm/TUI/internal/database"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func init() {
@@ -29,12 +30,13 @@ func registerSfdcCustomers() {
 			{Name: "last_activity", Type: core.FieldDate, Required: false, AllowEmpty: true},
 			{Name: "type", Type: core.FieldText, Required: false, AllowEmpty: true},
 		},
-		BuildParams: func(row []string, idx core.HeaderIndex) (any, error) {
+		BuildParams: func(row []string, idx core.HeaderIndex, uploadID pgtype.UUID) (any, error) {
 			return db.InsertSfdcCustomerParams{
 				AccountIDCasesafe: core.ToPgText(getCell(row, idx, "account_id_casesafe")),
 				AccountName:       core.ToPgText(getCell(row, idx, "account_name")),
 				LastActivity:      core.ToPgDate(getCell(row, idx, "last_activity")),
 				Type:              core.ToPgText(getCell(row, idx, "type")),
+				UploadID:          uploadID,
 			}, nil
 		},
 		Insert: func(ctx context.Context, dbtx core.DBTX, params any) error {
@@ -42,6 +44,9 @@ func registerSfdcCustomers() {
 		},
 		Reset: func(ctx context.Context, dbtx core.DBTX) error {
 			return db.New(dbtx).ResetSfdcCustomers(ctx)
+		},
+		DeleteByUploadID: func(ctx context.Context, dbtx core.DBTX, uploadID pgtype.UUID) (int64, error) {
+			return db.New(dbtx).DeleteSfdcCustomersByUploadId(ctx, uploadID)
 		},
 	})
 }
@@ -62,13 +67,14 @@ func registerSfdcPriceBook() {
 			{Name: "product_code", Type: core.FieldText, Required: false, AllowEmpty: true},
 			{Name: "product_id_casesafe", Type: core.FieldText, Required: false, AllowEmpty: true},
 		},
-		BuildParams: func(row []string, idx core.HeaderIndex) (any, error) {
+		BuildParams: func(row []string, idx core.HeaderIndex, uploadID pgtype.UUID) (any, error) {
 			return db.InsertSfdcPriceBookParams{
 				PriceBookName:     core.ToPgText(getCell(row, idx, "price_book_name")),
 				ListPrice:         core.ToPgNumeric(getCell(row, idx, "list_price")),
 				ProductName:       core.ToPgText(getCell(row, idx, "product_name")),
 				ProductCode:       core.ToPgText(getCell(row, idx, "product_code")),
 				ProductIDCasesafe: core.ToPgText(getCell(row, idx, "product_id_casesafe")),
+				UploadID:          uploadID,
 			}, nil
 		},
 		Insert: func(ctx context.Context, dbtx core.DBTX, params any) error {
@@ -76,6 +82,9 @@ func registerSfdcPriceBook() {
 		},
 		Reset: func(ctx context.Context, dbtx core.DBTX) error {
 			return db.New(dbtx).ResetSfdcPriceBook(ctx)
+		},
+		DeleteByUploadID: func(ctx context.Context, dbtx core.DBTX, uploadID pgtype.UUID) (int64, error) {
+			return db.New(dbtx).DeleteSfdcPriceBookByUploadId(ctx, uploadID)
 		},
 	})
 }
@@ -117,7 +126,7 @@ func registerSfdcOppDetail() {
 			{Name: "total_amount_due_partner", Type: core.FieldNumeric, Required: false, AllowEmpty: true},
 			{Name: "active_product", Type: core.FieldBool, Required: false, AllowEmpty: true},
 		},
-		BuildParams: func(row []string, idx core.HeaderIndex) (any, error) {
+		BuildParams: func(row []string, idx core.HeaderIndex, uploadID pgtype.UUID) (any, error) {
 			return db.InsertSfdcOppDetailParams{
 				OpportunityID:                core.ToPgText(getCell(row, idx, "opportunity_id")),
 				OpportunityProductCasesafeID: core.ToPgText(getCell(row, idx, "opportunity_product_casesafe_id")),
@@ -145,6 +154,7 @@ func registerSfdcOppDetail() {
 				TotalAmountDueCustomer:       core.ToPgNumeric(getCell(row, idx, "total_amount_due_customer")),
 				TotalAmountDuePartner:        core.ToPgNumeric(getCell(row, idx, "total_amount_due_partner")),
 				ActiveProduct:                core.ToPgBool(getCell(row, idx, "active_product")),
+				UploadID:                     uploadID,
 			}, nil
 		},
 		Insert: func(ctx context.Context, dbtx core.DBTX, params any) error {
@@ -152,6 +162,9 @@ func registerSfdcOppDetail() {
 		},
 		Reset: func(ctx context.Context, dbtx core.DBTX) error {
 			return db.New(dbtx).ResetSfdcOppDetail(ctx)
+		},
+		DeleteByUploadID: func(ctx context.Context, dbtx core.DBTX, uploadID pgtype.UUID) (int64, error) {
+			return db.New(dbtx).DeleteSfdcOppDetailByUploadId(ctx, uploadID)
 		},
 	})
 }

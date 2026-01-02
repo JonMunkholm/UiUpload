@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // DBTX is the interface for database operations.
@@ -54,7 +55,8 @@ type TableInfo struct {
 type HeaderIndex map[string]int
 
 // BuildParamsFunc builds database insert parameters from a CSV row.
-type BuildParamsFunc func(row []string, headerIdx HeaderIndex) (any, error)
+// uploadID is optional - pass pgtype.UUID{} if not tracking uploads.
+type BuildParamsFunc func(row []string, headerIdx HeaderIndex, uploadID pgtype.UUID) (any, error)
 
 // InsertFunc inserts a row into the database.
 type InsertFunc func(ctx context.Context, db DBTX, params any) error
@@ -62,13 +64,17 @@ type InsertFunc func(ctx context.Context, db DBTX, params any) error
 // ResetFunc deletes all data from a table.
 type ResetFunc func(ctx context.Context, db DBTX) error
 
+// DeleteByUploadIDFunc deletes rows by upload ID and returns the count deleted.
+type DeleteByUploadIDFunc func(ctx context.Context, db DBTX, uploadID pgtype.UUID) (int64, error)
+
 // TableDefinition contains everything needed to process a table.
 type TableDefinition struct {
-	Info        TableInfo
-	FieldSpecs  []FieldSpec
-	BuildParams BuildParamsFunc
-	Insert      InsertFunc
-	Reset       ResetFunc
+	Info             TableInfo
+	FieldSpecs       []FieldSpec
+	BuildParams      BuildParamsFunc
+	Insert           InsertFunc
+	Reset            ResetFunc
+	DeleteByUploadID DeleteByUploadIDFunc // Deletes rows by upload_id for rollback
 }
 
 // UploadPhase indicates the current stage of upload processing.
@@ -175,4 +181,13 @@ type Aggregations map[string]*ColumnAggregation
 type SortSpec struct {
 	Column string // Display column name
 	Dir    string // "asc" or "desc"
+}
+
+// RollbackResult contains the result of a rollback operation.
+type RollbackResult struct {
+	UploadID    string `json:"uploadId"`
+	TableKey    string `json:"tableKey"`
+	RowsDeleted int64  `json:"rowsDeleted"`
+	Success     bool   `json:"success"`
+	Error       string `json:"error,omitempty"`
 }

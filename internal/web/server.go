@@ -78,6 +78,7 @@ func (s *Server) setupRoutes() {
 		r.Get("/upload/{uploadID}/progress", s.handleUploadProgress)
 		r.Get("/upload/{uploadID}/result", s.handleUploadResult)
 		r.Post("/upload/{uploadID}/cancel", s.handleCancelUpload)
+		r.Get("/upload/{uploadID}/failed-rows", s.handleExportFailedRows)
 
 		// Preview analysis
 		r.Post("/preview/{tableKey}", s.handlePreview)
@@ -91,13 +92,27 @@ func (s *Server) setupRoutes() {
 		// Update cell
 		r.Post("/update/{tableKey}", s.handleUpdateCell)
 
+		// Bulk edit
+		r.Post("/bulk-edit/{tableKey}", s.handleBulkEdit)
+
 		// Edit history
 		r.Get("/edit-history/{tableKey}", s.handleGetEditHistory)
 		r.Post("/revert/{tableKey}/{id}", s.handleRevertChange)
 
+		// Import templates
+		r.Get("/import-templates/{tableKey}", s.handleListTemplates)
+		r.Get("/import-templates/{tableKey}/match", s.handleMatchTemplates)
+		r.Get("/import-template/{id}", s.handleGetTemplate)
+		r.Post("/import-template", s.handleCreateTemplate)
+		r.Put("/import-template/{id}", s.handleUpdateTemplate)
+		r.Delete("/import-template/{id}", s.handleDeleteTemplate)
+
 		// Reset operations
 		r.Post("/reset/{tableKey}", s.handleReset)
 		r.Post("/reset", s.handleResetAll)
+
+		// Rollback operation
+		r.Post("/rollback/{uploadID}", s.handleRollbackUpload)
 	})
 }
 

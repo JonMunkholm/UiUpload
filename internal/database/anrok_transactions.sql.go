@@ -22,6 +22,18 @@ func (q *Queries) CountAnrokTransactions(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const deleteAnrokTransactionsByUploadId = `-- name: DeleteAnrokTransactionsByUploadId :execrows
+DELETE FROM anrok_transactions WHERE upload_id = $1
+`
+
+func (q *Queries) DeleteAnrokTransactionsByUploadId(ctx context.Context, uploadID pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteAnrokTransactionsByUploadId, uploadID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const insertAnrokTransaction = `-- name: InsertAnrokTransaction :exec
 INSERT INTO anrok_transactions (
     transaction_id,
@@ -46,9 +58,10 @@ INSERT INTO anrok_transactions (
     customer_country_code,
     jurisdictions,
     jurisdiction_ids,
-    return_ids
+    return_ids,
+    upload_id
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
 `
 
 type InsertAnrokTransactionParams struct {
@@ -75,6 +88,7 @@ type InsertAnrokTransactionParams struct {
 	Jurisdictions             pgtype.Text    `json:"jurisdictions"`
 	JurisdictionIds           pgtype.Text    `json:"jurisdiction_ids"`
 	ReturnIds                 pgtype.Text    `json:"return_ids"`
+	UploadID                  pgtype.UUID    `json:"upload_id"`
 }
 
 func (q *Queries) InsertAnrokTransaction(ctx context.Context, arg InsertAnrokTransactionParams) error {
@@ -102,6 +116,7 @@ func (q *Queries) InsertAnrokTransaction(ctx context.Context, arg InsertAnrokTra
 		arg.Jurisdictions,
 		arg.JurisdictionIds,
 		arg.ReturnIds,
+		arg.UploadID,
 	)
 	return err
 }

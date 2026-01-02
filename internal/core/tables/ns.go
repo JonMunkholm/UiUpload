@@ -5,6 +5,7 @@ import (
 
 	"github.com/JonMunkholm/TUI/internal/core"
 	db "github.com/JonMunkholm/TUI/internal/database"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func init() {
@@ -33,7 +34,7 @@ func registerNsCustomers() {
 			{Name: "overdue_balance", Type: core.FieldNumeric, Required: false, AllowEmpty: true},
 			{Name: "days_overdue", Type: core.FieldNumeric, Required: false, AllowEmpty: true},
 		},
-		BuildParams: func(row []string, idx core.HeaderIndex) (any, error) {
+		BuildParams: func(row []string, idx core.HeaderIndex, uploadID pgtype.UUID) (any, error) {
 			return db.InsertNsCustomerParams{
 				SalesforceIDIo: core.ToPgText(getCell(row, idx, "salesforce_id_io")),
 				InternalID:     core.ToPgText(getCell(row, idx, "internal_id")),
@@ -44,6 +45,7 @@ func registerNsCustomers() {
 				UnbilledOrders: core.ToPgNumeric(getCell(row, idx, "unbilled_orders")),
 				OverdueBalance: core.ToPgNumeric(getCell(row, idx, "overdue_balance")),
 				DaysOverdue:    core.ToPgNumeric(getCell(row, idx, "days_overdue")),
+				UploadID:       uploadID,
 			}, nil
 		},
 		Insert: func(ctx context.Context, dbtx core.DBTX, params any) error {
@@ -51,6 +53,9 @@ func registerNsCustomers() {
 		},
 		Reset: func(ctx context.Context, dbtx core.DBTX) error {
 			return db.New(dbtx).ResetNsCustomers(ctx)
+		},
+		DeleteByUploadID: func(ctx context.Context, dbtx core.DBTX, uploadID pgtype.UUID) (int64, error) {
+			return db.New(dbtx).DeleteNsCustomersByUploadId(ctx, uploadID)
 		},
 	})
 }
@@ -83,7 +88,7 @@ func registerNsSoDetail() {
 			{Name: "amount_gross", Type: core.FieldNumeric, Required: false, AllowEmpty: true},
 			{Name: "terms_days_till_net_due", Type: core.FieldNumeric, Required: false, AllowEmpty: true},
 		},
-		BuildParams: func(row []string, idx core.HeaderIndex) (any, error) {
+		BuildParams: func(row []string, idx core.HeaderIndex, uploadID pgtype.UUID) (any, error) {
 			return db.InsertNsSoDetailParams{
 				SfdcOppID:           core.ToPgText(getCell(row, idx, "sfdc_opp_id")),
 				SfdcOppLineID:       core.ToPgText(getCell(row, idx, "sfdc_opp_line_id")),
@@ -102,6 +107,7 @@ func registerNsSoDetail() {
 				UnitPrice:           core.ToPgNumeric(getCell(row, idx, "unit_price")),
 				AmountGross:         core.ToPgNumeric(getCell(row, idx, "amount_gross")),
 				TermsDaysTillNetDue: core.ToPgNumeric(getCell(row, idx, "terms_days_till_net_due")),
+				UploadID:            uploadID,
 			}, nil
 		},
 		Insert: func(ctx context.Context, dbtx core.DBTX, params any) error {
@@ -109,6 +115,9 @@ func registerNsSoDetail() {
 		},
 		Reset: func(ctx context.Context, dbtx core.DBTX) error {
 			return db.New(dbtx).ResetNsSoDetail(ctx)
+		},
+		DeleteByUploadID: func(ctx context.Context, dbtx core.DBTX, uploadID pgtype.UUID) (int64, error) {
+			return db.New(dbtx).DeleteNsSoDetailByUploadId(ctx, uploadID)
 		},
 	})
 }
@@ -146,7 +155,7 @@ func registerNsInvoiceDetail() {
 			{Name: "shipping_address_state", Type: core.FieldText, Required: false, AllowEmpty: true, Normalizer: NormalizeUsState},
 			{Name: "shipping_address_country", Type: core.FieldText, Required: false, AllowEmpty: true},
 		},
-		BuildParams: func(row []string, idx core.HeaderIndex) (any, error) {
+		BuildParams: func(row []string, idx core.HeaderIndex, uploadID pgtype.UUID) (any, error) {
 			return db.InsertNsInvoiceDetailParams{
 				SfdcOppID:              core.ToPgText(getCell(row, idx, "sfdc_opp_id")),
 				SfdcOppLineID:          core.ToPgText(getCell(row, idx, "sfdc_opp_line_id")),
@@ -170,6 +179,7 @@ func registerNsInvoiceDetail() {
 				ShippingAddressCity:    core.ToPgText(getCell(row, idx, "shipping_address_city")),
 				ShippingAddressState:   core.ToPgText(NormalizeUsState(getCell(row, idx, "shipping_address_state"))),
 				ShippingAddressCountry: core.ToPgText(getCell(row, idx, "shipping_address_country")),
+				UploadID:               uploadID,
 			}, nil
 		},
 		Insert: func(ctx context.Context, dbtx core.DBTX, params any) error {
@@ -178,6 +188,8 @@ func registerNsInvoiceDetail() {
 		Reset: func(ctx context.Context, dbtx core.DBTX) error {
 			return db.New(dbtx).ResetNsInvoiceDetail(ctx)
 		},
+		DeleteByUploadID: func(ctx context.Context, dbtx core.DBTX, uploadID pgtype.UUID) (int64, error) {
+			return db.New(dbtx).DeleteNsInvoiceDetailByUploadId(ctx, uploadID)
+		},
 	})
 }
-

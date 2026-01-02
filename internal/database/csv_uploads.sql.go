@@ -11,8 +11,28 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createUploadRecord = `-- name: CreateUploadRecord :one
+INSERT INTO csv_uploads (name, action, file_name, rows_inserted, rows_skipped, duration_ms, status, uploaded_at)
+VALUES ($1, $2, $3, 0, 0, 0, 'active', NOW())
+RETURNING id
+`
+
+type CreateUploadRecordParams struct {
+	Name     string      `json:"name"`
+	Action   string      `json:"action"`
+	FileName pgtype.Text `json:"file_name"`
+}
+
+// Create an upload record BEFORE processing, returns ID for linking rows
+func (q *Queries) CreateUploadRecord(ctx context.Context, arg CreateUploadRecordParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, createUploadRecord, arg.Name, arg.Action, arg.FileName)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getCsvUpload = `-- name: GetCsvUpload :many
-SELECT name, action, uploaded_at, id, file_name, rows_inserted, rows_skipped, duration_ms
+SELECT name, action, uploaded_at, id, file_name, rows_inserted, rows_skipped, duration_ms, status, csv_headers
 FROM csv_uploads
 WHERE name = $1
 `
@@ -35,6 +55,8 @@ func (q *Queries) GetCsvUpload(ctx context.Context, name string) ([]CsvUpload, e
 			&i.RowsInserted,
 			&i.RowsSkipped,
 			&i.DurationMs,
+			&i.Status,
+			&i.CsvHeaders,
 		); err != nil {
 			return nil, err
 		}
@@ -81,8 +103,45 @@ func (q *Queries) GetLastUpload(ctx context.Context, name string) (GetLastUpload
 	return i, err
 }
 
+const getUploadById = `-- name: GetUploadById :one
+SELECT id, name, action, file_name, rows_inserted, rows_skipped, duration_ms, status, csv_headers, uploaded_at
+FROM csv_uploads
+WHERE id = $1
+`
+
+type GetUploadByIdRow struct {
+	ID           pgtype.UUID      `json:"id"`
+	Name         string           `json:"name"`
+	Action       string           `json:"action"`
+	FileName     pgtype.Text      `json:"file_name"`
+	RowsInserted pgtype.Int4      `json:"rows_inserted"`
+	RowsSkipped  pgtype.Int4      `json:"rows_skipped"`
+	DurationMs   pgtype.Int4      `json:"duration_ms"`
+	Status       pgtype.Text      `json:"status"`
+	CsvHeaders   []string         `json:"csv_headers"`
+	UploadedAt   pgtype.Timestamp `json:"uploaded_at"`
+}
+
+func (q *Queries) GetUploadById(ctx context.Context, id pgtype.UUID) (GetUploadByIdRow, error) {
+	row := q.db.QueryRow(ctx, getUploadById, id)
+	var i GetUploadByIdRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Action,
+		&i.FileName,
+		&i.RowsInserted,
+		&i.RowsSkipped,
+		&i.DurationMs,
+		&i.Status,
+		&i.CsvHeaders,
+		&i.UploadedAt,
+	)
+	return i, err
+}
+
 const getUploadHistory = `-- name: GetUploadHistory :many
-SELECT id, name, action, file_name, rows_inserted, rows_skipped, duration_ms, uploaded_at
+SELECT id, name, action, file_name, rows_inserted, rows_skipped, duration_ms, status, uploaded_at
 FROM csv_uploads
 WHERE name = $1
 ORDER BY uploaded_at DESC
@@ -97,6 +156,7 @@ type GetUploadHistoryRow struct {
 	RowsInserted pgtype.Int4      `json:"rows_inserted"`
 	RowsSkipped  pgtype.Int4      `json:"rows_skipped"`
 	DurationMs   pgtype.Int4      `json:"duration_ms"`
+	Status       pgtype.Text      `json:"status"`
 	UploadedAt   pgtype.Timestamp `json:"uploaded_at"`
 }
 
@@ -117,6 +177,7 @@ func (q *Queries) GetUploadHistory(ctx context.Context, name string) ([]GetUploa
 			&i.RowsInserted,
 			&i.RowsSkipped,
 			&i.DurationMs,
+			&i.Status,
 			&i.UploadedAt,
 		); err != nil {
 			return nil, err
@@ -155,11 +216,63 @@ func (q *Queries) InsertCsvUpload(ctx context.Context, arg InsertCsvUploadParams
 	return err
 }
 
+const markUploadRolledBack = `-- name: MarkUploadRolledBack :exec
+UPDATE csv_uploads
+SET status = 'rolled_back'
+WHERE id = $1
+`
+
+func (q *Queries) MarkUploadRolledBack(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, markUploadRolledBack, id)
+	return err
+}
+
 const resetCsvUploads = `-- name: ResetCsvUploads :exec
 DELETE FROM csv_uploads
 `
 
 func (q *Queries) ResetCsvUploads(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, resetCsvUploads)
+	return err
+}
+
+const updateUploadCounts = `-- name: UpdateUploadCounts :exec
+UPDATE csv_uploads
+SET rows_inserted = $2, rows_skipped = $3, duration_ms = $4
+WHERE id = $1
+`
+
+type UpdateUploadCountsParams struct {
+	ID           pgtype.UUID `json:"id"`
+	RowsInserted pgtype.Int4 `json:"rows_inserted"`
+	RowsSkipped  pgtype.Int4 `json:"rows_skipped"`
+	DurationMs   pgtype.Int4 `json:"duration_ms"`
+}
+
+// Update final counts after processing completes
+func (q *Queries) UpdateUploadCounts(ctx context.Context, arg UpdateUploadCountsParams) error {
+	_, err := q.db.Exec(ctx, updateUploadCounts,
+		arg.ID,
+		arg.RowsInserted,
+		arg.RowsSkipped,
+		arg.DurationMs,
+	)
+	return err
+}
+
+const updateUploadHeaders = `-- name: UpdateUploadHeaders :exec
+UPDATE csv_uploads
+SET csv_headers = $2
+WHERE id = $1
+`
+
+type UpdateUploadHeadersParams struct {
+	ID         pgtype.UUID `json:"id"`
+	CsvHeaders []string    `json:"csv_headers"`
+}
+
+// Store CSV headers for failed rows export
+func (q *Queries) UpdateUploadHeaders(ctx context.Context, arg UpdateUploadHeadersParams) error {
+	_, err := q.db.Exec(ctx, updateUploadHeaders, arg.ID, arg.CsvHeaders)
 	return err
 }

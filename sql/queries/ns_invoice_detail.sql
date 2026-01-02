@@ -21,9 +21,13 @@ INSERT INTO ns_invoice_detail (
     account,
     shipping_address_city,
     shipping_address_state,
-    shipping_address_country
+    shipping_address_country,
+    upload_id
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22);
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23);
+
+-- name: DeleteNsInvoiceDetailByUploadId :execrows
+DELETE FROM ns_invoice_detail WHERE upload_id = $1;
 
 -- name: ResetNsInvoiceDetail :exec
 DELETE FROM ns_invoice_detail;

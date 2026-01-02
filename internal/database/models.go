@@ -33,6 +33,7 @@ type AnrokTransaction struct {
 	Jurisdictions             pgtype.Text    `json:"jurisdictions"`
 	JurisdictionIds           pgtype.Text    `json:"jurisdiction_ids"`
 	ReturnIds                 pgtype.Text    `json:"return_ids"`
+	UploadID                  pgtype.UUID    `json:"upload_id"`
 }
 
 type CellEditHistory struct {
@@ -56,6 +57,18 @@ type CsvUpload struct {
 	RowsInserted pgtype.Int4      `json:"rows_inserted"`
 	RowsSkipped  pgtype.Int4      `json:"rows_skipped"`
 	DurationMs   pgtype.Int4      `json:"duration_ms"`
+	Status       pgtype.Text      `json:"status"`
+	CsvHeaders   []string         `json:"csv_headers"`
+}
+
+type ImportTemplate struct {
+	ID            pgtype.UUID      `json:"id"`
+	TableKey      string           `json:"table_key"`
+	Name          string           `json:"name"`
+	ColumnMapping []byte           `json:"column_mapping"`
+	CsvHeaders    []byte           `json:"csv_headers"`
+	CreatedAt     pgtype.Timestamp `json:"created_at"`
+	UpdatedAt     pgtype.Timestamp `json:"updated_at"`
 }
 
 type NsCustomer struct {
@@ -69,6 +82,7 @@ type NsCustomer struct {
 	UnbilledOrders pgtype.Numeric `json:"unbilled_orders"`
 	OverdueBalance pgtype.Numeric `json:"overdue_balance"`
 	DaysOverdue    pgtype.Numeric `json:"days_overdue"`
+	UploadID       pgtype.UUID    `json:"upload_id"`
 }
 
 type NsInvoiceDetail struct {
@@ -95,6 +109,7 @@ type NsInvoiceDetail struct {
 	ShippingAddressCity    pgtype.Text    `json:"shipping_address_city"`
 	ShippingAddressState   pgtype.Text    `json:"shipping_address_state"`
 	ShippingAddressCountry pgtype.Text    `json:"shipping_address_country"`
+	UploadID               pgtype.UUID    `json:"upload_id"`
 }
 
 type NsSoDetail struct {
@@ -116,6 +131,7 @@ type NsSoDetail struct {
 	UnitPrice           pgtype.Numeric `json:"unit_price"`
 	AmountGross         pgtype.Numeric `json:"amount_gross"`
 	TermsDaysTillNetDue pgtype.Numeric `json:"terms_days_till_net_due"`
+	UploadID            pgtype.UUID    `json:"upload_id"`
 }
 
 type SfdcCustomer struct {
@@ -124,6 +140,7 @@ type SfdcCustomer struct {
 	AccountName       pgtype.Text `json:"account_name"`
 	LastActivity      pgtype.Date `json:"last_activity"`
 	Type              pgtype.Text `json:"type"`
+	UploadID          pgtype.UUID `json:"upload_id"`
 }
 
 type SfdcOppDetail struct {
@@ -154,6 +171,7 @@ type SfdcOppDetail struct {
 	TotalAmountDueCustomer       pgtype.Numeric `json:"total_amount_due_customer"`
 	TotalAmountDuePartner        pgtype.Numeric `json:"total_amount_due_partner"`
 	ActiveProduct                pgtype.Bool    `json:"active_product"`
+	UploadID                     pgtype.UUID    `json:"upload_id"`
 }
 
 type SfdcPriceBook struct {
@@ -163,4 +181,14 @@ type SfdcPriceBook struct {
 	ProductName       pgtype.Text    `json:"product_name"`
 	ProductCode       pgtype.Text    `json:"product_code"`
 	ProductIDCasesafe pgtype.Text    `json:"product_id_casesafe"`
+	UploadID          pgtype.UUID    `json:"upload_id"`
+}
+
+type UploadFailedRow struct {
+	ID         pgtype.UUID        `json:"id"`
+	UploadID   pgtype.UUID        `json:"upload_id"`
+	LineNumber int32              `json:"line_number"`
+	Reason     string             `json:"reason"`
+	RowData    []string           `json:"row_data"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }

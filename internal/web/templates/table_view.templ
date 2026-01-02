@@ -121,6 +121,18 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 							</div>
 						</div>
 					</div>
+					<!-- Templates button -->
+					<button
+						type="button"
+						data-table-key={ tableKey }
+						onclick="showTemplatesModal(this.dataset.tableKey)"
+						class="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-700"
+					>
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"></path>
+						</svg>
+						Templates
+					</button>
 					<!-- Export button -->
 					if data.TotalRows > 0 {
 						<a
@@ -139,18 +151,30 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 
 		<!-- Selection Bar (hidden until rows selected) -->
 		if len(info.UniqueKey) > 0 {
-			<div id="selection-bar" class="hidden mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center justify-between dark:bg-red-900/30 dark:border-red-800">
-				<span id="selection-count" class="text-sm font-medium text-red-800">0 rows selected</span>
-				<button
-					type="button"
-					onclick="showDeleteModal()"
-					class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 transition-colors"
-				>
-					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-					</svg>
-					Delete Selected
-				</button>
+			<div id="selection-bar" class="hidden mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between dark:bg-blue-900/30 dark:border-blue-800">
+				<span id="selection-count" class="text-sm font-medium text-blue-800 dark:text-blue-300">0 rows selected</span>
+				<div class="flex items-center gap-2">
+					<button
+						type="button"
+						onclick="showBulkEditModal()"
+						class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
+					>
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+						</svg>
+						Edit Selected
+					</button>
+					<button
+						type="button"
+						onclick="showDeleteModal()"
+						class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 transition-colors"
+					>
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+						</svg>
+						Delete Selected
+					</button>
+				</div>
 			</div>
 		}
 
@@ -215,6 +239,89 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 						class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 transition-colors"
 					>
 						Delete
+					</button>
+				</div>
+			</div>
+		</div>
+
+		<!-- Bulk Edit Modal -->
+		<div id="bulk-edit-modal" class="hidden fixed inset-0 bg-gray-500 bg-opacity-75 dark:bg-gray-900 dark:bg-opacity-80 flex items-center justify-center z-50">
+			<div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 dark:bg-gray-800">
+				<div class="flex items-center justify-between p-4 border-b dark:border-gray-700">
+					<h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+						Edit <span id="bulk-edit-count">0</span> Rows
+					</h3>
+					<button onclick="hideBulkEditModal()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+						<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+						</svg>
+					</button>
+				</div>
+				<div class="p-6 space-y-4">
+					<div>
+						<label for="bulk-edit-column" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+							Column to Edit
+						</label>
+						<select
+							id="bulk-edit-column"
+							onchange="onBulkEditColumnChange()"
+							class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+						>
+							<option value="">Select a column...</option>
+						</select>
+					</div>
+					<div id="bulk-edit-value-wrapper" class="hidden">
+						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+							New Value
+						</label>
+						<div id="bulk-edit-value-container"></div>
+					</div>
+				</div>
+				<div class="flex justify-end gap-3 p-4 border-t bg-gray-50 rounded-b-lg dark:bg-gray-700 dark:border-gray-600">
+					<button
+						type="button"
+						onclick="hideBulkEditModal()"
+						class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors dark:bg-gray-600 dark:text-gray-200 dark:border-gray-500 dark:hover:bg-gray-500"
+					>
+						Cancel
+					</button>
+					<button
+						type="button"
+						id="bulk-edit-submit"
+						onclick="confirmBulkEdit()"
+						disabled
+						class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+					>
+						Update Rows
+					</button>
+				</div>
+			</div>
+		</div>
+
+		<!-- Templates Management Modal -->
+		<div id="templates-modal" class="hidden fixed inset-0 bg-gray-500 bg-opacity-75 dark:bg-gray-900 dark:bg-opacity-80 flex items-center justify-center z-50">
+			<div class="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 dark:bg-gray-800">
+				<div class="flex items-center justify-between p-4 border-b dark:border-gray-700">
+					<h3 class="text-lg font-semibold text-gray-900 dark:text-white">Import Templates</h3>
+					<button onclick="hideTemplatesModal()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+						<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+						</svg>
+					</button>
+				</div>
+				<div id="templates-modal-content" class="p-4 max-h-96 overflow-y-auto">
+					<!-- Content loaded dynamically -->
+					<div class="flex items-center justify-center py-8 text-gray-500 dark:text-gray-400">
+						<svg class="w-5 h-5 animate-spin mr-2" fill="none" viewBox="0 0 24 24">
+							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+						</svg>
+						Loading templates...
+					</div>
+				</div>
+				<div class="flex justify-end p-4 border-t dark:border-gray-700">
+					<button onclick="hideTemplatesModal()" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600">
+						Close
 					</button>
 				</div>
 			</div>

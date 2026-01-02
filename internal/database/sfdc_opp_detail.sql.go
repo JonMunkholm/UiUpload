@@ -22,6 +22,18 @@ func (q *Queries) CountSfdcOppDetail(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const deleteSfdcOppDetailByUploadId = `-- name: DeleteSfdcOppDetailByUploadId :execrows
+DELETE FROM sfdc_opp_detail WHERE upload_id = $1
+`
+
+func (q *Queries) DeleteSfdcOppDetailByUploadId(ctx context.Context, uploadID pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteSfdcOppDetailByUploadId, uploadID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const insertSfdcOppDetail = `-- name: InsertSfdcOppDetail :exec
 INSERT INTO sfdc_opp_detail (
     opportunity_id,
@@ -49,9 +61,10 @@ INSERT INTO sfdc_opp_detail (
     product_code,
     total_amount_due_customer,
     total_amount_due_partner,
-    active_product
+    active_product,
+    upload_id
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
 `
 
 type InsertSfdcOppDetailParams struct {
@@ -81,6 +94,7 @@ type InsertSfdcOppDetailParams struct {
 	TotalAmountDueCustomer       pgtype.Numeric `json:"total_amount_due_customer"`
 	TotalAmountDuePartner        pgtype.Numeric `json:"total_amount_due_partner"`
 	ActiveProduct                pgtype.Bool    `json:"active_product"`
+	UploadID                     pgtype.UUID    `json:"upload_id"`
 }
 
 func (q *Queries) InsertSfdcOppDetail(ctx context.Context, arg InsertSfdcOppDetailParams) error {
@@ -111,6 +125,7 @@ func (q *Queries) InsertSfdcOppDetail(ctx context.Context, arg InsertSfdcOppDeta
 		arg.TotalAmountDueCustomer,
 		arg.TotalAmountDuePartner,
 		arg.ActiveProduct,
+		arg.UploadID,
 	)
 	return err
 }

@@ -22,6 +22,18 @@ func (q *Queries) CountNsSoDetail(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const deleteNsSoDetailByUploadId = `-- name: DeleteNsSoDetailByUploadId :execrows
+DELETE FROM ns_so_detail WHERE upload_id = $1
+`
+
+func (q *Queries) DeleteNsSoDetailByUploadId(ctx context.Context, uploadID pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteNsSoDetailByUploadId, uploadID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const insertNsSoDetail = `-- name: InsertNsSoDetail :exec
 INSERT INTO ns_so_detail (
     sfdc_opp_id,
@@ -40,9 +52,10 @@ INSERT INTO ns_so_detail (
     quantity,
     unit_price,
     amount_gross,
-    terms_days_till_net_due
+    terms_days_till_net_due,
+    upload_id
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 `
 
 type InsertNsSoDetailParams struct {
@@ -63,6 +76,7 @@ type InsertNsSoDetailParams struct {
 	UnitPrice           pgtype.Numeric `json:"unit_price"`
 	AmountGross         pgtype.Numeric `json:"amount_gross"`
 	TermsDaysTillNetDue pgtype.Numeric `json:"terms_days_till_net_due"`
+	UploadID            pgtype.UUID    `json:"upload_id"`
 }
 
 func (q *Queries) InsertNsSoDetail(ctx context.Context, arg InsertNsSoDetailParams) error {
@@ -84,6 +98,7 @@ func (q *Queries) InsertNsSoDetail(ctx context.Context, arg InsertNsSoDetailPara
 		arg.UnitPrice,
 		arg.AmountGross,
 		arg.TermsDaysTillNetDue,
+		arg.UploadID,
 	)
 	return err
 }

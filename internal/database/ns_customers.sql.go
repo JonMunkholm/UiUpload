@@ -22,6 +22,18 @@ func (q *Queries) CountNsCustomers(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const deleteNsCustomersByUploadId = `-- name: DeleteNsCustomersByUploadId :execrows
+DELETE FROM ns_customers WHERE upload_id = $1
+`
+
+func (q *Queries) DeleteNsCustomersByUploadId(ctx context.Context, uploadID pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteNsCustomersByUploadId, uploadID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const insertNsCustomer = `-- name: InsertNsCustomer :exec
 INSERT INTO ns_customers (
     salesforce_id_io,
@@ -32,9 +44,10 @@ INSERT INTO ns_customers (
     balance,
     unbilled_orders,
     overdue_balance,
-    days_overdue
+    days_overdue,
+    upload_id
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 `
 
 type InsertNsCustomerParams struct {
@@ -47,6 +60,7 @@ type InsertNsCustomerParams struct {
 	UnbilledOrders pgtype.Numeric `json:"unbilled_orders"`
 	OverdueBalance pgtype.Numeric `json:"overdue_balance"`
 	DaysOverdue    pgtype.Numeric `json:"days_overdue"`
+	UploadID       pgtype.UUID    `json:"upload_id"`
 }
 
 func (q *Queries) InsertNsCustomer(ctx context.Context, arg InsertNsCustomerParams) error {
@@ -60,6 +74,7 @@ func (q *Queries) InsertNsCustomer(ctx context.Context, arg InsertNsCustomerPara
 		arg.UnbilledOrders,
 		arg.OverdueBalance,
 		arg.DaysOverdue,
+		arg.UploadID,
 	)
 	return err
 }

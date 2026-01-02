@@ -22,14 +22,27 @@ func (q *Queries) CountSfdcCustomers(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const deleteSfdcCustomersByUploadId = `-- name: DeleteSfdcCustomersByUploadId :execrows
+DELETE FROM sfdc_customers WHERE upload_id = $1
+`
+
+func (q *Queries) DeleteSfdcCustomersByUploadId(ctx context.Context, uploadID pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteSfdcCustomersByUploadId, uploadID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const insertSfdcCustomer = `-- name: InsertSfdcCustomer :exec
 INSERT INTO sfdc_customers (
     account_id_casesafe,
     account_name,
     last_activity,
-    type
+    type,
+    upload_id
 )
-VALUES ($1, $2, $3, $4)
+VALUES ($1, $2, $3, $4, $5)
 `
 
 type InsertSfdcCustomerParams struct {
@@ -37,6 +50,7 @@ type InsertSfdcCustomerParams struct {
 	AccountName       pgtype.Text `json:"account_name"`
 	LastActivity      pgtype.Date `json:"last_activity"`
 	Type              pgtype.Text `json:"type"`
+	UploadID          pgtype.UUID `json:"upload_id"`
 }
 
 func (q *Queries) InsertSfdcCustomer(ctx context.Context, arg InsertSfdcCustomerParams) error {
@@ -45,6 +59,7 @@ func (q *Queries) InsertSfdcCustomer(ctx context.Context, arg InsertSfdcCustomer
 		arg.AccountName,
 		arg.LastActivity,
 		arg.Type,
+		arg.UploadID,
 	)
 	return err
 }

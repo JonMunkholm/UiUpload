@@ -22,15 +22,28 @@ func (q *Queries) CountSfdcPriceBook(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const deleteSfdcPriceBookByUploadId = `-- name: DeleteSfdcPriceBookByUploadId :execrows
+DELETE FROM sfdc_price_book WHERE upload_id = $1
+`
+
+func (q *Queries) DeleteSfdcPriceBookByUploadId(ctx context.Context, uploadID pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteSfdcPriceBookByUploadId, uploadID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const insertSfdcPriceBook = `-- name: InsertSfdcPriceBook :exec
 INSERT INTO sfdc_price_book (
     price_book_name,
     list_price,
     product_name,
     product_code,
-    product_id_casesafe
+    product_id_casesafe,
+    upload_id
 )
-VALUES ($1, $2, $3, $4, $5)
+VALUES ($1, $2, $3, $4, $5, $6)
 `
 
 type InsertSfdcPriceBookParams struct {
@@ -39,6 +52,7 @@ type InsertSfdcPriceBookParams struct {
 	ProductName       pgtype.Text    `json:"product_name"`
 	ProductCode       pgtype.Text    `json:"product_code"`
 	ProductIDCasesafe pgtype.Text    `json:"product_id_casesafe"`
+	UploadID          pgtype.UUID    `json:"upload_id"`
 }
 
 func (q *Queries) InsertSfdcPriceBook(ctx context.Context, arg InsertSfdcPriceBookParams) error {
@@ -48,6 +62,7 @@ func (q *Queries) InsertSfdcPriceBook(ctx context.Context, arg InsertSfdcPriceBo
 		arg.ProductName,
 		arg.ProductCode,
 		arg.ProductIDCasesafe,
+		arg.UploadID,
 	)
 	return err
 }

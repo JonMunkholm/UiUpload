@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	db "github.com/JonMunkholm/TUI/internal/database"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // MaxFileSize is the maximum allowed CSV file size (100MB).
@@ -55,14 +56,9 @@ func (s *Service) processUpload(ctx context.Context, upload *activeUpload, def T
 		return
 	}
 
-	// Process the records
+	// Process the records (upload tracking is now done inside processRecords)
 	result := s.processRecords(ctx, upload, def, records, upload.FileName, startTime)
 	upload.Result = result
-
-	// Record upload history for successful uploads
-	if result.Error == "" {
-		s.recordUpload(ctx, upload.TableKey, upload.FileName, result.Inserted, result.Skipped, result.Duration)
-	}
 }
 
 // processUploadDir handles upload from directory (for compatibility).
@@ -174,11 +170,8 @@ func (s *Service) processUploadDir(ctx context.Context, upload *activeUpload, de
 		totalSkipped += result.Skipped
 		allFailedRows = append(allFailedRows, result.FailedRows...)
 
-		// Record successful upload
+		// Move to Uploaded directory on success
 		if result.Error == "" {
-			s.recordUpload(ctx, upload.TableKey, fileName, result.Inserted, result.Skipped, result.Duration)
-
-			// Move to Uploaded directory
 			uploadedDir := filepath.Join(dir, "Uploaded")
 			_ = os.MkdirAll(uploadedDir, 0755)
 			_ = os.Rename(filePath, filepath.Join(uploadedDir, fileName))
@@ -217,10 +210,14 @@ func (s *Service) processRecords(ctx context.Context, upload *activeUpload, def 
 	var dataRows [][]string
 	var headerRowIndex int
 
+	// Track the actual CSV header row for failed rows export
+	var csvHeaderRow []string
+
 	// Check if user provided explicit column mapping
 	if upload.Mapping != nil && len(upload.Mapping) > 0 {
 		// User provided mapping - use first row as header, rest as data
 		headerRow := records[0]
+		csvHeaderRow = headerRow
 		dataRows = records[1:]
 		headerRowIndex = 0
 		csvHeaderIdx = buildMappedHeaderIndex(upload.Mapping, headerRow)
@@ -236,6 +233,7 @@ func (s *Service) processRecords(ctx context.Context, upload *activeUpload, def 
 		}
 		headerRowIndex = headerIdx
 		headerRow := records[headerIdx]
+		csvHeaderRow = headerRow
 		dataRows = records[headerIdx+1:]
 		csvHeaderIdx = MakeHeaderIndex(headerRow)
 	}
@@ -251,6 +249,22 @@ func (s *Service) processRecords(ctx context.Context, upload *activeUpload, def 
 	upload.Progress.TotalRows = len(dataRows)
 	upload.Progress.CurrentRow = 0
 	upload.notifyProgress()
+
+	// Create upload record FIRST to get uploadID for linking rows
+	var uploadID pgtype.UUID
+	createParams := db.CreateUploadRecordParams{
+		Name:   upload.TableKey,
+		Action: "upload",
+	}
+	if fileName != "" {
+		createParams.FileName.String = fileName
+		createParams.FileName.Valid = true
+	}
+	uploadID, err := db.New(s.pool).CreateUploadRecord(ctx, createParams)
+	if err != nil {
+		// Fall back to empty UUID if creation fails (backwards compat)
+		uploadID = pgtype.UUID{}
+	}
 
 	// Begin transaction
 	tx, err := s.pool.Begin(ctx)
@@ -294,8 +308,8 @@ func (s *Service) processRecords(ctx context.Context, upload *activeUpload, def 
 			continue
 		}
 
-		// Validate and build params
-		params, err := buildAndValidate(row, csvHeaderIdx, def)
+		// Validate and build params with uploadID
+		params, err := buildAndValidate(row, csvHeaderIdx, def, uploadID)
 		if err != nil {
 			failedRows = append(failedRows, FailedRow{
 				FileName:   fileName,
@@ -353,6 +367,40 @@ func (s *Service) processRecords(ctx context.Context, upload *activeUpload, def 
 		return result
 	}
 
+	// Update upload record with final counts and headers
+	if uploadID.Valid {
+		updateParams := db.UpdateUploadCountsParams{
+			ID: uploadID,
+		}
+		updateParams.RowsInserted.Int32 = int32(result.Inserted)
+		updateParams.RowsInserted.Valid = true
+		updateParams.RowsSkipped.Int32 = int32(len(failedRows))
+		updateParams.RowsSkipped.Valid = true
+		updateParams.DurationMs.Int32 = int32(time.Since(startTime).Milliseconds())
+		updateParams.DurationMs.Valid = true
+		_ = db.New(s.pool).UpdateUploadCounts(ctx, updateParams)
+
+		// Store CSV headers for failed rows export
+		if len(csvHeaderRow) > 0 {
+			_ = db.New(s.pool).UpdateUploadHeaders(ctx, db.UpdateUploadHeadersParams{
+				ID:         uploadID,
+				CsvHeaders: csvHeaderRow,
+			})
+		}
+
+		// Persist failed rows for later download
+		if len(failedRows) > 0 {
+			for _, fr := range failedRows {
+				_ = db.New(s.pool).InsertFailedRow(ctx, db.InsertFailedRowParams{
+					UploadID:   uploadID,
+					LineNumber: int32(fr.LineNumber),
+					Reason:     fr.Reason,
+					RowData:    fr.Data,
+				})
+			}
+		}
+	}
+
 	result.TotalRows = len(dataRows)
 	result.Skipped = len(failedRows)
 	result.FailedRows = failedRows
@@ -368,7 +416,7 @@ func (s *Service) processRecords(ctx context.Context, upload *activeUpload, def 
 }
 
 // buildAndValidate validates a row and builds insert parameters.
-func buildAndValidate(row []string, headerIdx HeaderIndex, def TableDefinition) (any, error) {
+func buildAndValidate(row []string, headerIdx HeaderIndex, def TableDefinition, uploadID pgtype.UUID) (any, error) {
 	// Validate required fields
 	for _, spec := range def.FieldSpecs {
 		pos, ok := headerIdx[strings.ToLower(spec.Name)]
@@ -420,8 +468,8 @@ func buildAndValidate(row []string, headerIdx HeaderIndex, def TableDefinition) 
 		}
 	}
 
-	// Build params using the table's build function
-	return def.BuildParams(row, headerIdx)
+	// Build params using the table's build function with uploadID
+	return def.BuildParams(row, headerIdx, uploadID)
 }
 
 // Helper functions

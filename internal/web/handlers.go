@@ -278,6 +278,24 @@ func (s *Server) handleResetAll(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"status":"reset_all"}`))
 }
 
+// handleRollbackUpload deletes all rows from a specific upload.
+func (s *Server) handleRollbackUpload(w http.ResponseWriter, r *http.Request) {
+	uploadID := chi.URLParam(r, "uploadID")
+	if uploadID == "" {
+		writeError(w, http.StatusBadRequest, "missing upload ID")
+		return
+	}
+
+	result, err := s.service.RollbackUpload(r.Context(), uploadID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, result.Error)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
 // handleUploadHistory returns the upload history for a table as HTML.
 func (s *Server) handleUploadHistory(w http.ResponseWriter, r *http.Request) {
 	tableKey := chi.URLParam(r, "tableKey")
@@ -363,6 +381,64 @@ func (s *Server) handleExportData(w http.ResponseWriter, r *http.Request) {
 		for i, col := range def.Info.Columns {
 			record[i] = formatCellForExport(row[col])
 		}
+		csvWriter.Write(record)
+	}
+
+	csvWriter.Flush()
+}
+
+// handleExportFailedRows exports failed rows from an upload as CSV.
+func (s *Server) handleExportFailedRows(w http.ResponseWriter, r *http.Request) {
+	uploadID := chi.URLParam(r, "uploadID")
+	if uploadID == "" {
+		writeError(w, http.StatusBadRequest, "missing upload ID")
+		return
+	}
+
+	// Get upload info with headers
+	upload, err := s.service.GetUploadWithHeaders(r.Context(), uploadID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	// Check if headers are available (legacy uploads may not have them)
+	if len(upload.CsvHeaders) == 0 {
+		writeError(w, http.StatusNotFound, "export unavailable for legacy uploads")
+		return
+	}
+
+	// Get failed rows
+	failedRows, err := s.service.GetFailedRows(r.Context(), uploadID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if len(failedRows) == 0 {
+		writeError(w, http.StatusNotFound, "no failed rows found")
+		return
+	}
+
+	// Set CSV download headers
+	timestamp := time.Now().Format("20060102_150405")
+	filename := fmt.Sprintf("failed_rows_%s.csv", timestamp)
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+
+	// Write CSV
+	csvWriter := csv.NewWriter(w)
+
+	// Header row: _line, _error, ...original columns
+	header := append([]string{"_line", "_error"}, upload.CsvHeaders...)
+	csvWriter.Write(header)
+
+	// Data rows
+	for _, row := range failedRows {
+		record := append([]string{
+			strconv.Itoa(int(row.LineNumber)),
+			row.Reason,
+		}, row.RowData...)
 		csvWriter.Write(record)
 	}
 
@@ -818,6 +894,48 @@ func (s *Server) handleUpdateCell(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
+// handleBulkEdit updates a single column across multiple selected rows.
+func (s *Server) handleBulkEdit(w http.ResponseWriter, r *http.Request) {
+	tableKey := chi.URLParam(r, "tableKey")
+	if tableKey == "" {
+		writeError(w, http.StatusBadRequest, "missing table key")
+		return
+	}
+
+	var req struct {
+		Keys   []string `json:"keys"`
+		Column string   `json:"column"`
+		Value  string   `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if len(req.Keys) == 0 {
+		writeError(w, http.StatusBadRequest, "no rows specified")
+		return
+	}
+
+	if req.Column == "" {
+		writeError(w, http.StatusBadRequest, "column is required")
+		return
+	}
+
+	result, err := s.service.BulkEditRows(r.Context(), tableKey, core.BulkEditRequest{
+		Keys:   req.Keys,
+		Column: req.Column,
+		Value:  req.Value,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
 // handleGetEditHistory returns the edit history for a table.
 func (s *Server) handleGetEditHistory(w http.ResponseWriter, r *http.Request) {
 	tableKey := chi.URLParam(r, "tableKey")
@@ -861,4 +979,161 @@ func (s *Server) handleRevertChange(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+}
+
+// handleListTemplates returns all import templates for a table.
+func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
+	tableKey := chi.URLParam(r, "tableKey")
+	if tableKey == "" {
+		writeError(w, http.StatusBadRequest, "missing table key")
+		return
+	}
+
+	templates, err := s.service.ListTemplates(r.Context(), tableKey)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(templates)
+}
+
+// handleMatchTemplates finds templates matching the provided CSV headers.
+func (s *Server) handleMatchTemplates(w http.ResponseWriter, r *http.Request) {
+	tableKey := chi.URLParam(r, "tableKey")
+	if tableKey == "" {
+		writeError(w, http.StatusBadRequest, "missing table key")
+		return
+	}
+
+	// Parse headers from query string (comma-separated)
+	headersStr := r.URL.Query().Get("headers")
+	if headersStr == "" {
+		writeError(w, http.StatusBadRequest, "missing headers parameter")
+		return
+	}
+
+	headers := strings.Split(headersStr, ",")
+	for i := range headers {
+		headers[i] = strings.TrimSpace(headers[i])
+	}
+
+	matches, err := s.service.MatchTemplates(r.Context(), tableKey, headers)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(matches)
+}
+
+// handleGetTemplate returns a single import template by ID.
+func (s *Server) handleGetTemplate(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing template id")
+		return
+	}
+
+	template, err := s.service.GetTemplate(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(template)
+}
+
+// handleCreateTemplate creates a new import template.
+func (s *Server) handleCreateTemplate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		TableKey      string         `json:"tableKey"`
+		Name          string         `json:"name"`
+		ColumnMapping map[string]int `json:"columnMapping"`
+		CSVHeaders    []string       `json:"csvHeaders"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.TableKey == "" || req.Name == "" {
+		writeError(w, http.StatusBadRequest, "tableKey and name are required")
+		return
+	}
+
+	if len(req.ColumnMapping) == 0 {
+		writeError(w, http.StatusBadRequest, "columnMapping is required")
+		return
+	}
+
+	template, err := s.service.CreateTemplate(r.Context(), req.TableKey, req.Name, req.ColumnMapping, req.CSVHeaders)
+	if err != nil {
+		// Check for duplicate name error
+		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
+			writeError(w, http.StatusConflict, "template name already exists")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(template)
+}
+
+// handleUpdateTemplate updates an existing import template.
+func (s *Server) handleUpdateTemplate(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing template id")
+		return
+	}
+
+	var req struct {
+		Name          string         `json:"name"`
+		ColumnMapping map[string]int `json:"columnMapping"`
+		CSVHeaders    []string       `json:"csvHeaders"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	template, err := s.service.UpdateTemplate(r.Context(), id, req.Name, req.ColumnMapping, req.CSVHeaders)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(template)
+}
+
+// handleDeleteTemplate deletes an import template.
+func (s *Server) handleDeleteTemplate(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing template id")
+		return
+	}
+
+	if err := s.service.DeleteTemplate(r.Context(), id); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"status":"deleted"}`))
 }

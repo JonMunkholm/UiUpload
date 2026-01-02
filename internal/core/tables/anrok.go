@@ -5,6 +5,7 @@ import (
 
 	"github.com/JonMunkholm/TUI/internal/core"
 	db "github.com/JonMunkholm/TUI/internal/database"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func init() {
@@ -45,7 +46,7 @@ func registerAnrokTransactions() {
 			{Name: "Jurisdictions IDs", DBColumn: "jurisdiction_ids", Type: core.FieldText, Required: false, AllowEmpty: true},
 			{Name: "Return IDs", DBColumn: "return_ids", Type: core.FieldText, Required: false, AllowEmpty: true},
 		},
-		BuildParams: func(row []string, idx core.HeaderIndex) (any, error) {
+		BuildParams: func(row []string, idx core.HeaderIndex, uploadID pgtype.UUID) (any, error) {
 			return db.InsertAnrokTransactionParams{
 				TransactionID:             core.ToPgText(getCell(row, idx, "Transaction ID")),
 				CustomerID:                core.ToPgText(getCell(row, idx, "Customer ID")),
@@ -70,6 +71,7 @@ func registerAnrokTransactions() {
 				Jurisdictions:             core.ToPgText(getCell(row, idx, "Jurisdictions")),
 				JurisdictionIds:           core.ToPgText(getCell(row, idx, "Jurisdictions IDs")),
 				ReturnIds:                 core.ToPgText(getCell(row, idx, "Return IDs")),
+				UploadID:                  uploadID,
 			}, nil
 		},
 		Insert: func(ctx context.Context, dbtx core.DBTX, params any) error {
@@ -77,6 +79,9 @@ func registerAnrokTransactions() {
 		},
 		Reset: func(ctx context.Context, dbtx core.DBTX) error {
 			return db.New(dbtx).ResetAnrokTransactions(ctx)
+		},
+		DeleteByUploadID: func(ctx context.Context, dbtx core.DBTX, uploadID pgtype.UUID) (int64, error) {
+			return db.New(dbtx).DeleteAnrokTransactionsByUploadId(ctx, uploadID)
 		},
 	})
 }

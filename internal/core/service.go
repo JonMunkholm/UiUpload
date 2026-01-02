@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	db "github.com/JonMunkholm/TUI/internal/database"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -344,10 +346,12 @@ func (s *Service) GetLastUpload(ctx context.Context, tableKey string) (*LastUplo
 
 // UploadHistoryEntry represents a single upload history entry.
 type UploadHistoryEntry struct {
+	ID           string // UUID for rollback
 	FileName     string
 	RowsInserted int32
 	RowsSkipped  int32
 	DurationMs   int32
+	Status       string // "active" or "rolled_back"
 	UploadedAt   time.Time
 }
 
@@ -360,16 +364,143 @@ func (s *Service) GetUploadHistory(ctx context.Context, tableKey string) ([]Uplo
 
 	entries := make([]UploadHistoryEntry, 0, len(rows))
 	for _, row := range rows {
+		// Convert UUID to string
+		var id string
+		if row.ID.Valid {
+			id = fmt.Sprintf("%x-%x-%x-%x-%x",
+				row.ID.Bytes[0:4], row.ID.Bytes[4:6], row.ID.Bytes[6:8],
+				row.ID.Bytes[8:10], row.ID.Bytes[10:16])
+		}
 		entries = append(entries, UploadHistoryEntry{
+			ID:           id,
 			FileName:     row.FileName.String,
 			RowsInserted: row.RowsInserted.Int32,
 			RowsSkipped:  row.RowsSkipped.Int32,
 			DurationMs:   row.DurationMs.Int32,
+			Status:       row.Status.String,
 			UploadedAt:   row.UploadedAt.Time,
 		})
 	}
 
 	return entries, nil
+}
+
+// FailedRowExport contains data for exporting a failed row.
+type FailedRowExport struct {
+	LineNumber int32
+	Reason     string
+	RowData    []string
+}
+
+// UploadWithHeaders contains upload info including CSV headers for export.
+type UploadWithHeaders struct {
+	ID         string
+	TableKey   string
+	FileName   string
+	CsvHeaders []string
+}
+
+// GetUploadWithHeaders returns upload info including CSV headers.
+func (s *Service) GetUploadWithHeaders(ctx context.Context, uploadID string) (*UploadWithHeaders, error) {
+	var pgUUID pgtype.UUID
+	if err := pgUUID.Scan(uploadID); err != nil {
+		return nil, fmt.Errorf("invalid upload ID: %w", err)
+	}
+
+	upload, err := db.New(s.pool).GetUploadById(ctx, pgUUID)
+	if err != nil {
+		return nil, fmt.Errorf("upload not found: %w", err)
+	}
+
+	return &UploadWithHeaders{
+		ID:         uploadID,
+		TableKey:   upload.Name,
+		FileName:   upload.FileName.String,
+		CsvHeaders: upload.CsvHeaders,
+	}, nil
+}
+
+// GetFailedRows returns all failed rows for an upload.
+func (s *Service) GetFailedRows(ctx context.Context, uploadID string) ([]FailedRowExport, error) {
+	var pgUUID pgtype.UUID
+	if err := pgUUID.Scan(uploadID); err != nil {
+		return nil, fmt.Errorf("invalid upload ID: %w", err)
+	}
+
+	rows, err := db.New(s.pool).GetFailedRowsByUploadId(ctx, pgUUID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]FailedRowExport, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, FailedRowExport{
+			LineNumber: row.LineNumber,
+			Reason:     row.Reason,
+			RowData:    row.RowData,
+		})
+	}
+
+	return result, nil
+}
+
+// RollbackUpload deletes all rows that were inserted from a specific upload.
+func (s *Service) RollbackUpload(ctx context.Context, uploadID string) (RollbackResult, error) {
+	result := RollbackResult{
+		UploadID: uploadID,
+	}
+
+	// Parse UUID
+	var pgUUID pgtype.UUID
+	if err := pgUUID.Scan(uploadID); err != nil {
+		result.Error = fmt.Sprintf("invalid upload ID: %v", err)
+		return result, fmt.Errorf("invalid upload ID: %w", err)
+	}
+
+	// Get upload info
+	upload, err := db.New(s.pool).GetUploadById(ctx, pgUUID)
+	if err != nil {
+		result.Error = fmt.Sprintf("upload not found: %v", err)
+		return result, fmt.Errorf("get upload: %w", err)
+	}
+
+	result.TableKey = upload.Name
+
+	// Check if already rolled back
+	if upload.Status.Valid && upload.Status.String == "rolled_back" {
+		result.Error = "upload already rolled back"
+		return result, fmt.Errorf("upload already rolled back")
+	}
+
+	// Get table definition
+	def, ok := Get(upload.Name)
+	if !ok {
+		result.Error = fmt.Sprintf("unknown table: %s", upload.Name)
+		return result, fmt.Errorf("unknown table: %s", upload.Name)
+	}
+
+	// Check if table supports rollback
+	if def.DeleteByUploadID == nil {
+		result.Error = "table does not support rollback"
+		return result, fmt.Errorf("table does not support rollback")
+	}
+
+	// Delete the rows
+	rowsDeleted, err := def.DeleteByUploadID(ctx, s.pool, pgUUID)
+	if err != nil {
+		result.Error = fmt.Sprintf("delete failed: %v", err)
+		return result, fmt.Errorf("delete by upload ID: %w", err)
+	}
+
+	// Mark upload as rolled back
+	if err := db.New(s.pool).MarkUploadRolledBack(ctx, pgUUID); err != nil {
+		// Log but don't fail - rows are already deleted
+		result.Error = fmt.Sprintf("warning: rows deleted but status update failed: %v", err)
+	}
+
+	result.RowsDeleted = rowsDeleted
+	result.Success = true
+	return result, nil
 }
 
 // countTable returns the row count for a specific table.
@@ -1266,6 +1397,95 @@ func (s *Service) UpdateCell(ctx context.Context, tableKey string, req UpdateCel
 	return &UpdateCellResult{Success: true}, nil
 }
 
+// BulkEditRequest represents a request to edit multiple rows.
+type BulkEditRequest struct {
+	Keys   []string
+	Column string
+	Value  string
+}
+
+// BulkEditResult contains the result of a bulk edit operation.
+type BulkEditResult struct {
+	Updated int      `json:"updated"`
+	Failed  int      `json:"failed"`
+	Errors  []string `json:"errors,omitempty"`
+}
+
+// BulkEditRows updates a single column across multiple rows.
+func (s *Service) BulkEditRows(ctx context.Context, tableKey string, req BulkEditRequest) (*BulkEditResult, error) {
+	def, ok := Get(tableKey)
+	if !ok {
+		return nil, fmt.Errorf("unknown table: %s", tableKey)
+	}
+
+	uniqueKey := def.Info.UniqueKey
+	if len(uniqueKey) == 0 {
+		return nil, fmt.Errorf("table %s has no unique key defined", tableKey)
+	}
+
+	if len(req.Keys) == 0 {
+		return nil, fmt.Errorf("no rows specified")
+	}
+
+	// Find the FieldSpec for this column
+	var fieldSpec *FieldSpec
+	for i := range def.FieldSpecs {
+		if strings.EqualFold(def.FieldSpecs[i].Name, req.Column) {
+			fieldSpec = &def.FieldSpecs[i]
+			break
+		}
+	}
+	if fieldSpec == nil {
+		return nil, fmt.Errorf("column not found: %s", req.Column)
+	}
+
+	// Block editing unique key columns (would cause duplicates)
+	for _, uk := range uniqueKey {
+		if strings.EqualFold(uk, req.Column) {
+			return nil, fmt.Errorf("cannot bulk edit unique key column: %s", req.Column)
+		}
+	}
+
+	// Determine DB column name
+	dbCol := toDBColumnName(req.Column)
+	if fieldSpec.DBColumn != "" {
+		dbCol = fieldSpec.DBColumn
+	}
+
+	// Validate value against type (once, not per row)
+	if err := validateCellValue(req.Value, *fieldSpec); err != nil {
+		return nil, fmt.Errorf("invalid value: %v", err)
+	}
+
+	result := &BulkEditResult{}
+
+	// Update each row
+	for _, key := range req.Keys {
+		// Get old value for history
+		oldValue, _ := s.getCellValue(ctx, tableKey, def, uniqueKey, key, dbCol)
+
+		// Skip if value is unchanged
+		if oldValue == req.Value {
+			result.Updated++ // Count as success but no actual change
+			continue
+		}
+
+		// Execute update
+		err := s.executeUpdateCell(ctx, tableKey, def, uniqueKey, key, dbCol, req.Value, fieldSpec)
+		if err != nil {
+			result.Failed++
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", key, err))
+			continue
+		}
+
+		// Record in history
+		s.RecordCellEdit(ctx, tableKey, key, req.Column, oldValue, req.Value)
+		result.Updated++
+	}
+
+	return result, nil
+}
+
 // validateCellValue checks if a value is valid for the given field spec.
 func validateCellValue(value string, spec FieldSpec) error {
 	if value == "" {
@@ -1445,4 +1665,229 @@ func (s *Service) executeUpdateCell(ctx context.Context, tableKey string, def Ta
 
 	_, err := s.pool.Exec(ctx, query, args...)
 	return err
+}
+
+// ============================================================================
+// Import Templates
+// ============================================================================
+
+// ImportTemplate represents a saved column mapping template.
+type ImportTemplate struct {
+	ID            string         `json:"id"`
+	TableKey      string         `json:"tableKey"`
+	Name          string         `json:"name"`
+	ColumnMapping map[string]int `json:"columnMapping"`
+	CSVHeaders    []string       `json:"csvHeaders"`
+	CreatedAt     time.Time      `json:"createdAt"`
+	UpdatedAt     time.Time      `json:"updatedAt"`
+}
+
+// TemplateMatch represents a template that matches CSV headers.
+type TemplateMatch struct {
+	Template   ImportTemplate `json:"template"`
+	MatchScore float64        `json:"matchScore"`
+}
+
+// CreateTemplate creates a new import template.
+func (s *Service) CreateTemplate(ctx context.Context, tableKey, name string, mapping map[string]int, csvHeaders []string) (*ImportTemplate, error) {
+	if name == "" {
+		return nil, fmt.Errorf("template name is required")
+	}
+
+	mappingJSON, err := json.Marshal(mapping)
+	if err != nil {
+		return nil, fmt.Errorf("marshal mapping: %w", err)
+	}
+
+	headersJSON, err := json.Marshal(csvHeaders)
+	if err != nil {
+		return nil, fmt.Errorf("marshal headers: %w", err)
+	}
+
+	queries := db.New(s.pool)
+	result, err := queries.CreateImportTemplate(ctx, db.CreateImportTemplateParams{
+		TableKey:      tableKey,
+		Name:          name,
+		ColumnMapping: mappingJSON,
+		CsvHeaders:    headersJSON,
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), "import_templates_table_name_unique") {
+			return nil, fmt.Errorf("template '%s' already exists for this table", name)
+		}
+		return nil, fmt.Errorf("create template: %w", err)
+	}
+
+	return dbTemplateToTemplate(result)
+}
+
+// GetTemplate retrieves a template by ID.
+func (s *Service) GetTemplate(ctx context.Context, id string) (*ImportTemplate, error) {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return nil, fmt.Errorf("invalid template ID: %w", err)
+	}
+
+	queries := db.New(s.pool)
+	result, err := queries.GetImportTemplate(ctx, pgtype.UUID{Bytes: uid, Valid: true})
+	if err != nil {
+		return nil, fmt.Errorf("get template: %w", err)
+	}
+
+	return dbTemplateToTemplate(result)
+}
+
+// ListTemplates returns all templates for a table.
+func (s *Service) ListTemplates(ctx context.Context, tableKey string) ([]ImportTemplate, error) {
+	queries := db.New(s.pool)
+	results, err := queries.ListImportTemplates(ctx, tableKey)
+	if err != nil {
+		return nil, fmt.Errorf("list templates: %w", err)
+	}
+
+	templates := make([]ImportTemplate, 0, len(results))
+	for _, r := range results {
+		t, err := dbTemplateToTemplate(r)
+		if err != nil {
+			continue // Skip invalid templates
+		}
+		templates = append(templates, *t)
+	}
+
+	return templates, nil
+}
+
+// UpdateTemplate updates an existing template.
+func (s *Service) UpdateTemplate(ctx context.Context, id, name string, mapping map[string]int, csvHeaders []string) (*ImportTemplate, error) {
+	if name == "" {
+		return nil, fmt.Errorf("template name is required")
+	}
+
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return nil, fmt.Errorf("invalid template ID: %w", err)
+	}
+
+	mappingJSON, err := json.Marshal(mapping)
+	if err != nil {
+		return nil, fmt.Errorf("marshal mapping: %w", err)
+	}
+
+	headersJSON, err := json.Marshal(csvHeaders)
+	if err != nil {
+		return nil, fmt.Errorf("marshal headers: %w", err)
+	}
+
+	queries := db.New(s.pool)
+	result, err := queries.UpdateImportTemplate(ctx, db.UpdateImportTemplateParams{
+		ID:            pgtype.UUID{Bytes: uid, Valid: true},
+		Name:          name,
+		ColumnMapping: mappingJSON,
+		CsvHeaders:    headersJSON,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("update template: %w", err)
+	}
+
+	return dbTemplateToTemplate(result)
+}
+
+// DeleteTemplate removes a template.
+func (s *Service) DeleteTemplate(ctx context.Context, id string) error {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return fmt.Errorf("invalid template ID: %w", err)
+	}
+
+	queries := db.New(s.pool)
+	return queries.DeleteImportTemplate(ctx, pgtype.UUID{Bytes: uid, Valid: true})
+}
+
+// MatchTemplates finds templates that match the given CSV headers.
+func (s *Service) MatchTemplates(ctx context.Context, tableKey string, csvHeaders []string) ([]TemplateMatch, error) {
+	templates, err := s.ListTemplates(ctx, tableKey)
+	if err != nil {
+		return nil, err
+	}
+
+	var matches []TemplateMatch
+	for _, t := range templates {
+		score := matchTemplateHeaders(csvHeaders, t.CSVHeaders)
+		if score >= 0.7 { // Only include 70%+ matches
+			matches = append(matches, TemplateMatch{
+				Template:   t,
+				MatchScore: score,
+			})
+		}
+	}
+
+	// Sort by score descending
+	for i := 0; i < len(matches)-1; i++ {
+		for j := i + 1; j < len(matches); j++ {
+			if matches[j].MatchScore > matches[i].MatchScore {
+				matches[i], matches[j] = matches[j], matches[i]
+			}
+		}
+	}
+
+	return matches, nil
+}
+
+// matchTemplateHeaders calculates how well CSV headers match template headers.
+func matchTemplateHeaders(csvHeaders, templateHeaders []string) float64 {
+	if len(templateHeaders) == 0 {
+		return 0
+	}
+
+	csvSet := make(map[string]bool)
+	for _, h := range csvHeaders {
+		csvSet[strings.ToLower(strings.TrimSpace(h))] = true
+	}
+
+	matched := 0
+	for _, h := range templateHeaders {
+		if csvSet[strings.ToLower(strings.TrimSpace(h))] {
+			matched++
+		}
+	}
+
+	return float64(matched) / float64(len(templateHeaders))
+}
+
+// dbTemplateToTemplate converts a database template to our API type.
+func dbTemplateToTemplate(t db.ImportTemplate) (*ImportTemplate, error) {
+	var mapping map[string]int
+	if err := json.Unmarshal(t.ColumnMapping, &mapping); err != nil {
+		return nil, fmt.Errorf("unmarshal mapping: %w", err)
+	}
+
+	var headers []string
+	if err := json.Unmarshal(t.CsvHeaders, &headers); err != nil {
+		return nil, fmt.Errorf("unmarshal headers: %w", err)
+	}
+
+	id := ""
+	if t.ID.Valid {
+		id = uuid.UUID(t.ID.Bytes).String()
+	}
+
+	createdAt := time.Time{}
+	if t.CreatedAt.Valid {
+		createdAt = t.CreatedAt.Time
+	}
+
+	updatedAt := time.Time{}
+	if t.UpdatedAt.Valid {
+		updatedAt = t.UpdatedAt.Time
+	}
+
+	return &ImportTemplate{
+		ID:            id,
+		TableKey:      t.TableKey,
+		Name:          t.Name,
+		ColumnMapping: mapping,
+		CSVHeaders:    headers,
+		CreatedAt:     createdAt,
+		UpdatedAt:     updatedAt,
+	}, nil
 }

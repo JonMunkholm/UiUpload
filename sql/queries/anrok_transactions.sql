@@ -22,9 +22,13 @@ INSERT INTO anrok_transactions (
     customer_country_code,
     jurisdictions,
     jurisdiction_ids,
-    return_ids
+    return_ids,
+    upload_id
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23);
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24);
+
+-- name: DeleteAnrokTransactionsByUploadId :execrows
+DELETE FROM anrok_transactions WHERE upload_id = $1;
 
 -- name: ResetAnrokTransactions :exec
 DELETE FROM anrok_transactions;

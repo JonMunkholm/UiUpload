@@ -965,6 +965,7 @@ function escapeHtml(text) {
 // ============================================================================
 
 let currentPreviewForm = null;
+let currentPreviewCSVHeaders = [];
 
 function showPreview(input) {
     if (!input.files || !input.files[0]) return;
@@ -1132,47 +1133,80 @@ function collectMapping() {
     return Object.keys(mapping).length > 0 ? mapping : null;
 }
 
-function renderPreview(tableLabel, tableKey, expected, uniqueKey, actual, rows, allRows, totalRows, fileName) {
+async function renderPreview(tableLabel, tableKey, expected, uniqueKey, actual, rows, allRows, totalRows, fileName) {
+    // Store CSV headers for template saving
+    currentPreviewCSVHeaders = actual;
+
     const columnsMatch = expected.length === actual.length &&
         expected.every((col, i) => col.toLowerCase() === actual[i].toLowerCase());
 
     let columnSection;
+    let templateSection = '';
+    let showSaveButton = false;
+
     if (columnsMatch) {
         // Columns match - show simple green checkmark
         columnSection = `
-            <div class="mb-4 p-3 rounded-lg bg-green-50 border border-green-200">
+            <div class="mb-4 p-3 rounded-lg bg-green-50 border border-green-200 dark:bg-green-900/20 dark:border-green-800">
                 <div class="flex items-center gap-2 mb-2">
-                    <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-5 h-5 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                     </svg>
-                    <span class="text-sm font-medium text-green-800">Columns match</span>
+                    <span class="text-sm font-medium text-green-800 dark:text-green-200">Columns match</span>
                 </div>
                 <div class="grid grid-cols-2 gap-4 text-xs">
                     <div>
-                        <div class="font-medium text-gray-600 mb-1">Expected (${expected.length})</div>
-                        ${expected.map(c => `<div class="text-gray-700">${escapeHtml(c)}</div>`).join('')}
+                        <div class="font-medium text-gray-600 dark:text-gray-400 mb-1">Expected (${expected.length})</div>
+                        ${expected.map(c => `<div class="text-gray-700 dark:text-gray-300">${escapeHtml(c)}</div>`).join('')}
                     </div>
                     <div>
-                        <div class="font-medium text-gray-600 mb-1">Found in CSV (${actual.length})</div>
-                        ${actual.map(c => `<div class="text-gray-700">${escapeHtml(c)}</div>`).join('')}
+                        <div class="font-medium text-gray-600 dark:text-gray-400 mb-1">Found in CSV (${actual.length})</div>
+                        ${actual.map(c => `<div class="text-gray-700 dark:text-gray-300">${escapeHtml(c)}</div>`).join('')}
                     </div>
                 </div>
             </div>
         `;
     } else {
         // Columns don't match - show mapping UI
-        const autoMapping = buildAutoMapping(expected, actual);
+        showSaveButton = true;
+
+        // Fetch matching templates
+        const matches = await fetchMatchingTemplates(tableKey, actual);
+        templateSection = renderTemplateSelector(matches);
+
+        // Determine initial mapping: from best template (90%+) or auto-suggest
+        let initialMapping;
+        const bestMatch = matches.find(m => m.matchScore >= 0.9);
+        if (bestMatch) {
+            initialMapping = bestMatch.template.columnMapping;
+            // Auto-select the best template in dropdown after render
+            setTimeout(() => {
+                const selector = document.getElementById('template-selector');
+                if (selector) {
+                    selector.value = bestMatch.template.id;
+                }
+            }, 0);
+        } else {
+            initialMapping = buildAutoMapping(expected, actual);
+        }
+
         columnSection = `
-            <div class="mb-4 p-3 rounded-lg bg-yellow-50 border border-yellow-200">
+            <div class="mb-4 p-3 rounded-lg bg-yellow-50 border border-yellow-200 dark:bg-yellow-900/20 dark:border-yellow-800">
                 <div class="flex items-center gap-2 mb-3">
-                    <svg class="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-5 h-5 text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
                     </svg>
-                    <span class="text-sm font-medium text-yellow-800">Column mismatch - map columns below</span>
+                    <span class="text-sm font-medium text-yellow-800 dark:text-yellow-200">Column mismatch - map columns below</span>
                 </div>
-                ${renderMappingUI(expected, actual, autoMapping)}
+                ${renderMappingUI(expected, actual, initialMapping)}
             </div>
         `;
+    }
+
+    // Show save template button if mapping UI is visible
+    const saveTemplateContainer = document.getElementById('save-template-container');
+    if (saveTemplateContainer) {
+        saveTemplateContainer.innerHTML = showSaveButton ? renderSaveTemplateButton() : '';
     }
 
     // Detect CSV duplicates
@@ -1191,11 +1225,12 @@ function renderPreview(tableLabel, tableKey, expected, uniqueKey, actual, rows, 
 
     let html = `
         <div class="mb-4">
-            <div class="text-sm text-gray-600">File: <span class="font-medium">${escapeHtml(fileName)}</span></div>
-            <div class="text-sm text-gray-600">Table: <span class="font-medium">${escapeHtml(tableLabel)}</span></div>
-            <div class="text-sm text-gray-600">Rows: <span class="font-medium">${totalRows}</span></div>
+            <div class="text-sm text-gray-600 dark:text-gray-400">File: <span class="font-medium text-gray-900 dark:text-white">${escapeHtml(fileName)}</span></div>
+            <div class="text-sm text-gray-600 dark:text-gray-400">Table: <span class="font-medium text-gray-900 dark:text-white">${escapeHtml(tableLabel)}</span></div>
+            <div class="text-sm text-gray-600 dark:text-gray-400">Rows: <span class="font-medium text-gray-900 dark:text-white">${totalRows}</span></div>
         </div>
 
+        ${templateSection}
         ${columnSection}
         ${csvDuplicatesSection}
         ${dbDuplicatesSection}
@@ -1268,17 +1303,26 @@ function confirmUpload() {
         }
 
         document.getElementById('preview-modal').classList.add('hidden');
+        // Clear save template container
+        const saveTemplateContainer = document.getElementById('save-template-container');
+        if (saveTemplateContainer) saveTemplateContainer.innerHTML = '';
+
         htmx.trigger(currentPreviewForm, 'upload');
         currentPreviewForm = null;
         // Reset analysis state
         currentPreviewFile = null;
         currentPreviewTableKey = null;
         currentPreviewMapping = null;
+        currentPreviewCSVHeaders = [];
     }
 }
 
 function cancelPreview() {
     document.getElementById('preview-modal').classList.add('hidden');
+    // Clear save template container
+    const saveTemplateContainer = document.getElementById('save-template-container');
+    if (saveTemplateContainer) saveTemplateContainer.innerHTML = '';
+
     if (currentPreviewForm) {
         const input = currentPreviewForm.querySelector('input[type="file"]');
         if (input) input.value = '';
@@ -1291,6 +1335,7 @@ function cancelPreview() {
     currentPreviewFile = null;
     currentPreviewTableKey = null;
     currentPreviewMapping = null;
+    currentPreviewCSVHeaders = [];
 }
 
 // Close preview modal on outside click
@@ -1300,6 +1345,276 @@ document.addEventListener('click', function(e) {
         cancelPreview();
     }
 });
+
+// ============================================================================
+// Import Templates
+// ============================================================================
+
+// Fetch templates for a table
+async function fetchTemplates(tableKey) {
+    try {
+        const response = await fetch(`/api/import-templates/${encodeURIComponent(tableKey)}`);
+        if (!response.ok) return [];
+        return await response.json();
+    } catch (e) {
+        console.error('Failed to fetch templates:', e);
+        return [];
+    }
+}
+
+// Fetch matching templates based on CSV headers
+async function fetchMatchingTemplates(tableKey, csvHeaders) {
+    try {
+        const headersParam = csvHeaders.map(h => encodeURIComponent(h)).join(',');
+        const response = await fetch(`/api/import-templates/${encodeURIComponent(tableKey)}/match?headers=${headersParam}`);
+        if (!response.ok) return [];
+        return await response.json();
+    } catch (e) {
+        console.error('Failed to fetch matching templates:', e);
+        return [];
+    }
+}
+
+// Render template selector dropdown
+function renderTemplateSelector(matches) {
+    if (!matches || matches.length === 0) {
+        return '';
+    }
+
+    const hasHighMatch = matches.some(m => m.matchScore >= 0.9);
+
+    return `
+        <div class="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-200 dark:bg-blue-900/20 dark:border-blue-800">
+            <div class="flex items-center gap-2 mb-2">
+                <svg class="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                </svg>
+                <span class="text-sm font-medium text-blue-800 dark:text-blue-200">
+                    ${hasHighMatch ? 'Suggested template found' : 'Available templates'}
+                </span>
+            </div>
+            <select id="template-selector" onchange="applySelectedTemplate()" class="w-full text-sm border border-blue-300 rounded px-2 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-blue-600 dark:text-white">
+                <option value="">-- Select a template --</option>
+                ${matches.map(m => {
+                    const pct = Math.round(m.matchScore * 100);
+                    const label = pct >= 90 ? ` (${pct}% match)` : ` (${pct}%)`;
+                    return `<option value="${escapeHtml(m.template.id)}" data-mapping='${JSON.stringify(m.template.columnMapping)}'>${escapeHtml(m.template.name)}${label}</option>`;
+                }).join('')}
+            </select>
+        </div>
+    `;
+}
+
+// Apply selected template to mapping dropdowns
+function applySelectedTemplate() {
+    const selector = document.getElementById('template-selector');
+    if (!selector || !selector.value) return;
+
+    const option = selector.options[selector.selectedIndex];
+    const mappingStr = option.dataset.mapping;
+    if (!mappingStr) return;
+
+    try {
+        const mapping = JSON.parse(mappingStr);
+        // Apply mapping to each dropdown
+        document.querySelectorAll('.mapping-select').forEach(select => {
+            const expected = select.dataset.expected;
+            if (mapping.hasOwnProperty(expected)) {
+                select.value = mapping[expected];
+            } else {
+                select.value = -1;
+            }
+        });
+    } catch (e) {
+        console.error('Failed to apply template:', e);
+    }
+}
+
+// Show save template modal
+function showSaveTemplateModal() {
+    document.getElementById('template-name-input').value = '';
+    document.getElementById('save-template-modal').classList.remove('hidden');
+    document.getElementById('template-name-input').focus();
+}
+
+// Hide save template modal
+function hideSaveTemplateModal() {
+    document.getElementById('save-template-modal').classList.add('hidden');
+}
+
+// Save current mapping as a new template
+async function saveTemplate() {
+    const nameInput = document.getElementById('template-name-input');
+    const name = nameInput.value.trim();
+
+    if (!name) {
+        showToast('Please enter a template name', true);
+        nameInput.focus();
+        return;
+    }
+
+    if (!currentPreviewTableKey) {
+        showToast('No table context available', true);
+        return;
+    }
+
+    const mapping = collectMapping();
+    if (!mapping || Object.keys(mapping).length === 0) {
+        showToast('No column mapping to save', true);
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/import-template', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                tableKey: currentPreviewTableKey,
+                name: name,
+                columnMapping: mapping,
+                csvHeaders: currentPreviewCSVHeaders
+            })
+        });
+
+        if (response.status === 409) {
+            showToast('A template with this name already exists', true);
+            return;
+        }
+
+        if (!response.ok) {
+            const data = await response.json();
+            showToast(data.error || 'Failed to save template', true);
+            return;
+        }
+
+        hideSaveTemplateModal();
+        showToast('Template saved successfully');
+    } catch (e) {
+        console.error('Failed to save template:', e);
+        showToast('Failed to save template', true);
+    }
+}
+
+// Render save template button
+function renderSaveTemplateButton() {
+    return `
+        <button onclick="showSaveTemplateModal()" class="flex items-center gap-2 px-3 py-2 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-md hover:bg-green-100 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800 dark:hover:bg-green-900/40">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path>
+            </svg>
+            Save as Template
+        </button>
+    `;
+}
+
+// Show templates management modal
+let currentTemplatesTableKey = null;
+
+async function showTemplatesModal(tableKey) {
+    currentTemplatesTableKey = tableKey;
+    document.getElementById('templates-modal').classList.remove('hidden');
+    await loadTemplatesList();
+}
+
+function hideTemplatesModal() {
+    document.getElementById('templates-modal').classList.add('hidden');
+    currentTemplatesTableKey = null;
+}
+
+// Load and render templates list
+async function loadTemplatesList() {
+    const container = document.getElementById('templates-modal-content');
+    if (!currentTemplatesTableKey) return;
+
+    try {
+        const templates = await fetchTemplates(currentTemplatesTableKey);
+
+        if (templates.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-8">
+                    <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2"></path>
+                    </svg>
+                    <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">No templates yet</h3>
+                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                        Templates are created when you upload a CSV with column mapping.<br/>
+                        Use "Save as Template" to save your mappings for reuse.
+                    </p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = `
+            <div class="space-y-2">
+                ${templates.map(t => `
+                    <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg dark:bg-gray-700/50">
+                        <div class="flex-1 min-w-0">
+                            <div class="font-medium text-gray-900 dark:text-white truncate">${escapeHtml(t.name)}</div>
+                            <div class="text-xs text-gray-500 dark:text-gray-400">
+                                ${Object.keys(t.columnMapping).length} columns mapped • Updated ${formatRelativeTime(t.updatedAt)}
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 ml-4">
+                            <button
+                                onclick="deleteTemplateFromModal('${escapeHtml(t.id)}', '${escapeHtml(t.name)}')"
+                                class="p-1.5 text-red-600 hover:bg-red-100 rounded dark:text-red-400 dark:hover:bg-red-900/30"
+                                title="Delete template"
+                            >
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    } catch (e) {
+        console.error('Failed to load templates:', e);
+        container.innerHTML = `
+            <div class="text-center py-8 text-red-600 dark:text-red-400">
+                Failed to load templates. Please try again.
+            </div>
+        `;
+    }
+}
+
+// Delete template from management modal
+async function deleteTemplateFromModal(id, name) {
+    if (!confirm(`Delete template "${name}"?`)) return;
+
+    try {
+        const response = await fetch(`/api/import-template/${encodeURIComponent(id)}`, {
+            method: 'DELETE'
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to delete');
+        }
+
+        showToast('Template deleted');
+        await loadTemplatesList();
+    } catch (e) {
+        console.error('Failed to delete template:', e);
+        showToast('Failed to delete template', true);
+    }
+}
+
+// Format relative time (e.g., "2 days ago")
+function formatRelativeTime(dateStr) {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return 'today';
+    if (diffDays === 1) return 'yesterday';
+    if (diffDays < 7) return `${diffDays} days ago`;
+    if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+    if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
+    return `${Math.floor(diffDays / 365)} years ago`;
+}
 
 // ============================================================================
 // Duplicate Detection
@@ -2917,3 +3232,277 @@ function refreshHistoryPanel() {
         swap: 'innerHTML'
     });
 }
+
+// ============================================================================
+// Upload Rollback
+// ============================================================================
+
+// Store current rollback context
+let pendingRollback = null;
+
+function confirmRollback(btn) {
+    const uploadId = btn.dataset.uploadId;
+    const fileName = btn.dataset.fileName;
+    const rowCount = parseInt(btn.dataset.rowCount, 10);
+
+    pendingRollback = { uploadId, fileName, rowCount };
+    document.getElementById('rollback-row-count').textContent = rowCount;
+    document.getElementById('rollback-file-name').textContent = fileName || 'Unknown file';
+    document.getElementById('rollback-modal').classList.remove('hidden');
+}
+
+function hideRollbackModal() {
+    document.getElementById('rollback-modal').classList.add('hidden');
+    pendingRollback = null;
+}
+
+async function executeRollback() {
+    if (!pendingRollback) return;
+
+    const { uploadId, rowCount } = pendingRollback;
+    const confirmBtn = document.getElementById('rollback-confirm-btn');
+
+    // Disable button and show loading state
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Deleting...';
+
+    try {
+        const response = await fetch(`/api/rollback/${uploadId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            hideRollbackModal();
+            showToast(`Rolled back ${result.rowsDeleted} rows`);
+
+            // Refresh the upload history to show updated status
+            const tableKey = getTableKey();
+            if (tableKey) {
+                htmx.ajax('GET', `/api/history/${tableKey}`, {
+                    target: '#upload-history',
+                    swap: 'innerHTML'
+                });
+
+                // Also refresh the table view
+                const url = new URL(window.location.href);
+                htmx.ajax('GET', url.pathname + url.search, {
+                    target: '#table-container',
+                    swap: 'innerHTML'
+                });
+            }
+        } else {
+            showToast('Rollback failed: ' + (result.error || 'Unknown error'), true);
+        }
+    } catch (e) {
+        console.error('Rollback error:', e);
+        showToast('Rollback failed: ' + e.message, true);
+    } finally {
+        // Reset button state
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = `Delete ${rowCount} Rows`;
+        pendingRollback = null;
+    }
+}
+
+// ============================================================================
+// Bulk Edit
+// ============================================================================
+
+// Show bulk edit modal
+function showBulkEditModal() {
+    const count = selectedRows.size;
+    if (count === 0) return;
+
+    // Update count in modal
+    const countEl = document.getElementById('bulk-edit-count');
+    if (countEl) countEl.textContent = count;
+
+    // Populate column dropdown with editable columns (exclude unique key columns)
+    populateBulkEditColumns();
+
+    // Show modal
+    document.getElementById('bulk-edit-modal').classList.remove('hidden');
+}
+
+// Hide bulk edit modal
+function hideBulkEditModal() {
+    const modal = document.getElementById('bulk-edit-modal');
+    if (modal) modal.classList.add('hidden');
+
+    // Clear value container
+    const valueContainer = document.getElementById('bulk-edit-value-container');
+    if (valueContainer) valueContainer.innerHTML = '';
+
+    // Reset column dropdown
+    const columnSelect = document.getElementById('bulk-edit-column');
+    if (columnSelect) columnSelect.selectedIndex = 0;
+}
+
+// Populate column dropdown with editable columns
+function populateBulkEditColumns() {
+    const columnSelect = document.getElementById('bulk-edit-column');
+    if (!columnSelect || !columnsMeta) return;
+
+    // Clear existing options except the placeholder
+    columnSelect.innerHTML = '<option value="">Select a column...</option>';
+
+    // Add editable columns (exclude unique key columns)
+    for (const meta of columnsMeta) {
+        if (meta.isUniqueKey) continue;
+
+        const option = document.createElement('option');
+        option.value = meta.name;
+        option.textContent = meta.name;
+        columnSelect.appendChild(option);
+    }
+}
+
+// Handle column selection change
+function onBulkEditColumnChange() {
+    const columnSelect = document.getElementById('bulk-edit-column');
+    const valueContainer = document.getElementById('bulk-edit-value-container');
+    const submitBtn = document.getElementById('bulk-edit-submit');
+
+    if (!columnSelect || !valueContainer) return;
+
+    const colName = columnSelect.value;
+    if (!colName) {
+        valueContainer.innerHTML = '';
+        if (submitBtn) submitBtn.disabled = true;
+        return;
+    }
+
+    const meta = getColumnMeta(colName);
+    if (!meta) {
+        valueContainer.innerHTML = '';
+        if (submitBtn) submitBtn.disabled = true;
+        return;
+    }
+
+    // Build appropriate input based on column type
+    const inputHTML = buildBulkEditInput(meta);
+    valueContainer.innerHTML = `
+        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">New Value</label>
+        ${inputHTML}
+    `;
+
+    // Enable submit button
+    if (submitBtn) submitBtn.disabled = false;
+
+    // Focus the input
+    const input = valueContainer.querySelector('input, select');
+    if (input) input.focus();
+}
+
+// Build input for bulk edit (similar to buildEditInput but without keydown handlers)
+function buildBulkEditInput(meta) {
+    const inputClass = 'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white';
+
+    switch (meta.type) {
+        case 'numeric':
+            return `<input type="number" step="any" id="bulk-edit-value" class="${inputClass}" placeholder="Enter a number">`;
+
+        case 'date':
+            return `<input type="date" id="bulk-edit-value" class="${inputClass}">`;
+
+        case 'bool':
+            return `<select id="bulk-edit-value" class="${inputClass}">
+                <option value="">-</option>
+                <option value="true">Yes</option>
+                <option value="false">No</option>
+            </select>`;
+
+        case 'enum':
+            const options = (meta.enumValues || []).map(v =>
+                `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`
+            ).join('');
+            return `<select id="bulk-edit-value" class="${inputClass}">
+                <option value="">-</option>
+                ${options}
+            </select>`;
+
+        case 'text':
+        default:
+            return `<input type="text" id="bulk-edit-value" class="${inputClass}" placeholder="Enter text">`;
+    }
+}
+
+// Submit bulk edit
+async function confirmBulkEdit() {
+    const tableKey = getTableKey();
+    if (!tableKey || selectedRows.size === 0) {
+        hideBulkEditModal();
+        return;
+    }
+
+    const columnSelect = document.getElementById('bulk-edit-column');
+    const valueInput = document.getElementById('bulk-edit-value');
+    const submitBtn = document.getElementById('bulk-edit-submit');
+
+    if (!columnSelect || !valueInput) return;
+
+    const column = columnSelect.value;
+    const value = valueInput.value;
+    const keys = Array.from(selectedRows);
+
+    if (!column) {
+        showToast('Please select a column', true);
+        return;
+    }
+
+    // Disable submit button during request
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Updating...';
+    }
+
+    try {
+        const response = await fetch(`/api/bulk-edit/${tableKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ keys, column, value })
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+            hideBulkEditModal();
+            selectedRows.clear();
+            updateSelectionUI();
+
+            if (result.updated > 0) {
+                showToast(`Updated ${result.updated} row${result.updated !== 1 ? 's' : ''}`);
+            }
+            if (result.failed > 0) {
+                showToast(`${result.failed} row${result.failed !== 1 ? 's' : ''} failed`, true);
+                console.error('Bulk edit errors:', result.errors);
+            }
+
+            // Refresh the table
+            const url = new URL(window.location.href);
+            htmx.ajax('GET', url.pathname + url.search, { target: '#table-container', swap: 'innerHTML' });
+        } else {
+            showToast(result.error || 'Bulk edit failed', true);
+        }
+    } catch (e) {
+        console.error('Bulk edit error:', e);
+        showToast('Bulk edit failed', true);
+    } finally {
+        // Reset button state
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = `Update ${keys.length} Row${keys.length !== 1 ? 's' : ''}`;
+        }
+    }
+}
+
+// Close bulk edit modal on outside click
+document.addEventListener('click', function(e) {
+    const modal = document.getElementById('bulk-edit-modal');
+    if (modal && e.target === modal) {
+        hideBulkEditModal();
+    }
+});

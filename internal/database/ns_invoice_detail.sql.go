@@ -22,6 +22,18 @@ func (q *Queries) CountNsInvoiceDetail(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const deleteNsInvoiceDetailByUploadId = `-- name: DeleteNsInvoiceDetailByUploadId :execrows
+DELETE FROM ns_invoice_detail WHERE upload_id = $1
+`
+
+func (q *Queries) DeleteNsInvoiceDetailByUploadId(ctx context.Context, uploadID pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteNsInvoiceDetailByUploadId, uploadID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const insertNsInvoiceDetail = `-- name: InsertNsInvoiceDetail :exec
 INSERT INTO ns_invoice_detail (
     sfdc_opp_id,
@@ -45,9 +57,10 @@ INSERT INTO ns_invoice_detail (
     account,
     shipping_address_city,
     shipping_address_state,
-    shipping_address_country
+    shipping_address_country,
+    upload_id
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
 `
 
 type InsertNsInvoiceDetailParams struct {
@@ -73,6 +86,7 @@ type InsertNsInvoiceDetailParams struct {
 	ShippingAddressCity    pgtype.Text    `json:"shipping_address_city"`
 	ShippingAddressState   pgtype.Text    `json:"shipping_address_state"`
 	ShippingAddressCountry pgtype.Text    `json:"shipping_address_country"`
+	UploadID               pgtype.UUID    `json:"upload_id"`
 }
 
 func (q *Queries) InsertNsInvoiceDetail(ctx context.Context, arg InsertNsInvoiceDetailParams) error {
@@ -99,6 +113,7 @@ func (q *Queries) InsertNsInvoiceDetail(ctx context.Context, arg InsertNsInvoice
 		arg.ShippingAddressCity,
 		arg.ShippingAddressState,
 		arg.ShippingAddressCountry,
+		arg.UploadID,
 	)
 	return err
 }
