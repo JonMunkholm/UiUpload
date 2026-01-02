@@ -557,7 +557,7 @@ func (s *Server) handleTableView(w http.ResponseWriter, r *http.Request) {
 	filters := parseFilters(r, def)
 
 	// Fetch data
-	data, err := s.service.GetTableData(r.Context(), tableKey, page, 50, sorts, search, filters)
+	data, err := s.service.GetTableData(r.Context(), tableKey, page, core.DefaultPageSize, sorts, search, filters)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -944,7 +944,7 @@ func (s *Server) handleGetEditHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entries, err := s.service.GetEditHistory(r.Context(), tableKey, 50)
+	entries, err := s.service.GetEditHistory(r.Context(), tableKey, core.DefaultHistoryLimit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

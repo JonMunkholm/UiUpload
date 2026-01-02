@@ -232,21 +232,8 @@ func (s *Service) rowExists(ctx context.Context, tableKey, rowKey string) (bool,
 		return false, fmt.Errorf("invalid key format")
 	}
 
-	// Build DB column names
-	dbCols := make([]string, len(uniqueKey))
-	for i, col := range uniqueKey {
-		dbCol := ""
-		for _, spec := range def.FieldSpecs {
-			if strings.EqualFold(spec.Name, col) && spec.DBColumn != "" {
-				dbCol = spec.DBColumn
-				break
-			}
-		}
-		if dbCol == "" {
-			dbCol = toDBColumnName(col)
-		}
-		dbCols[i] = dbCol
-	}
+	// Build DB column names using helper
+	dbCols := resolveDBColumns(uniqueKey, def.FieldSpecs)
 
 	// Build query
 	conditions := make([]string, len(dbCols))
@@ -274,21 +261,8 @@ func (s *Service) getCellValue(ctx context.Context, tableKey string, def TableDe
 		return "", fmt.Errorf("invalid key format")
 	}
 
-	// Build DB column names for unique key
-	dbKeyCols := make([]string, len(uniqueKey))
-	for i, col := range uniqueKey {
-		dbKeyCol := ""
-		for _, spec := range def.FieldSpecs {
-			if strings.EqualFold(spec.Name, col) && spec.DBColumn != "" {
-				dbKeyCol = spec.DBColumn
-				break
-			}
-		}
-		if dbKeyCol == "" {
-			dbKeyCol = toDBColumnName(col)
-		}
-		dbKeyCols[i] = dbKeyCol
-	}
+	// Build DB column names using helper
+	dbKeyCols := resolveDBColumns(uniqueKey, def.FieldSpecs)
 
 	// Build conditions
 	conditions := make([]string, len(dbKeyCols))
@@ -331,38 +305,13 @@ func (s *Service) getRowData(ctx context.Context, tableKey, rowKey string) (map[
 		return nil, fmt.Errorf("invalid key format")
 	}
 
-	// Build column list
+	// Build column list using helpers
 	displayColumns := def.Info.Columns
-	quotedCols := make([]string, len(displayColumns))
-	for i, col := range displayColumns {
-		dbCol := ""
-		for _, spec := range def.FieldSpecs {
-			if spec.Name == col {
-				dbCol = spec.DBColumn
-				break
-			}
-		}
-		if dbCol == "" {
-			dbCol = toDBColumnName(col)
-		}
-		quotedCols[i] = quoteIdentifier(dbCol)
-	}
+	dbColumns := resolveDBColumns(displayColumns, def.FieldSpecs)
+	quotedCols := quoteColumns(dbColumns)
 
-	// Build DB column names for unique key
-	dbKeyCols := make([]string, len(uniqueKey))
-	for i, col := range uniqueKey {
-		dbKeyCol := ""
-		for _, spec := range def.FieldSpecs {
-			if strings.EqualFold(spec.Name, col) && spec.DBColumn != "" {
-				dbKeyCol = spec.DBColumn
-				break
-			}
-		}
-		if dbKeyCol == "" {
-			dbKeyCol = toDBColumnName(col)
-		}
-		dbKeyCols[i] = dbKeyCol
-	}
+	// Build DB column names for unique key using helper
+	dbKeyCols := resolveDBColumns(uniqueKey, def.FieldSpecs)
 
 	// Build conditions
 	conditions := make([]string, len(dbKeyCols))
@@ -421,17 +370,8 @@ func (s *Service) restoreRow(ctx context.Context, tableKey string, rowData map[s
 			continue
 		}
 
-		// Find DB column name
-		dbCol := ""
-		for _, spec := range def.FieldSpecs {
-			if spec.Name == col {
-				dbCol = spec.DBColumn
-				break
-			}
-		}
-		if dbCol == "" {
-			dbCol = toDBColumnName(col)
-		}
+		// Find DB column name using helper
+		dbCol := resolveDBColumn(col, def.FieldSpecs)
 
 		columns = append(columns, quoteIdentifier(dbCol))
 		placeholders = append(placeholders, fmt.Sprintf("$%d", argIdx))

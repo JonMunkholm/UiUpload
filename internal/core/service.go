@@ -626,62 +626,16 @@ func (s *Service) GetTableData(ctx context.Context, tableKey string, page, pageS
 		return nil, fmt.Errorf("unknown table: %s", tableKey)
 	}
 
-	// Build column mappings (display name -> DB column)
+	// Build column mappings using helper
 	displayColumns := def.Info.Columns
-	dbColumns := make([]string, len(displayColumns))
-	quotedCols := make([]string, len(displayColumns))
-	for i, col := range displayColumns {
-		dbCol := ""
-		for _, spec := range def.FieldSpecs {
-			if spec.Name == col {
-				dbCol = spec.DBColumn
-				break
-			}
-		}
-		if dbCol == "" {
-			dbCol = toDBColumnName(col)
-		}
-		dbColumns[i] = dbCol
-		quotedCols[i] = quoteIdentifier(dbCol)
-	}
+	dbColumns := resolveDBColumns(displayColumns, def.FieldSpecs)
+	quotedCols := quoteColumns(dbColumns)
 
-	// Build WHERE clause combining search and filters
-	var whereClause string
-	var queryArgs []interface{}
-	argIndex := 1
-	var allConditions []string
-
-	// Build search conditions (OR across text columns)
-	if searchQuery != "" {
-		var textConditions []string
-		for _, spec := range def.FieldSpecs {
-			if spec.Type == FieldText {
-				dbCol := spec.DBColumn
-				if dbCol == "" {
-					dbCol = toDBColumnName(spec.Name)
-				}
-				textConditions = append(textConditions, fmt.Sprintf("%s ILIKE $%d", quoteIdentifier(dbCol), argIndex))
-			}
-		}
-		if len(textConditions) > 0 {
-			allConditions = append(allConditions, "("+strings.Join(textConditions, " OR ")+")")
-			queryArgs = append(queryArgs, "%"+searchQuery+"%")
-			argIndex++
-		}
-	}
-
-	// Build filter conditions (AND together)
-	if len(filters.Filters) > 0 {
-		filterConditions, filterArgs, nextIdx := buildFilterConditions(filters, argIndex)
-		allConditions = append(allConditions, filterConditions...)
-		queryArgs = append(queryArgs, filterArgs...)
-		argIndex = nextIdx
-	}
-
-	// Combine all conditions with AND
-	if len(allConditions) > 0 {
-		whereClause = " WHERE " + strings.Join(allConditions, " AND ")
-	}
+	// Build WHERE clause using WhereBuilder
+	wb := NewWhereBuilder()
+	wb.AddSearch(searchQuery, def.FieldSpecs)
+	wb.AddFilters(filters)
+	whereClause, queryArgs := wb.Build()
 
 	// Get total count (with search filter)
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s%s", quoteIdentifier(tableKey), whereClause)
@@ -745,6 +699,7 @@ func (s *Service) GetTableData(ctx context.Context, tableKey string, page, pageS
 	}
 
 	// Build SELECT query with WHERE and ORDER BY clauses
+	argIndex := wb.NextArgIndex()
 	query := fmt.Sprintf(
 		"SELECT %s FROM %s%s ORDER BY %s LIMIT $%d OFFSET $%d",
 		strings.Join(quotedCols, ", "),
@@ -847,42 +802,11 @@ func (s *Service) GetColumnAggregations(ctx context.Context, tableKey string, se
 		return Aggregations{}, nil
 	}
 
-	// Build WHERE clause (same logic as GetTableData)
-	var whereClause string
-	var queryArgs []interface{}
-	argIndex := 1
-	var allConditions []string
-
-	// Build search conditions (OR across text columns)
-	if searchQuery != "" {
-		var textConditions []string
-		for _, spec := range def.FieldSpecs {
-			if spec.Type == FieldText {
-				dbCol := spec.DBColumn
-				if dbCol == "" {
-					dbCol = toDBColumnName(spec.Name)
-				}
-				textConditions = append(textConditions, fmt.Sprintf("%s ILIKE $%d", quoteIdentifier(dbCol), argIndex))
-			}
-		}
-		if len(textConditions) > 0 {
-			allConditions = append(allConditions, "("+strings.Join(textConditions, " OR ")+")")
-			queryArgs = append(queryArgs, "%"+searchQuery+"%")
-			argIndex++
-		}
-	}
-
-	// Build filter conditions (AND together)
-	if len(filters.Filters) > 0 {
-		filterConditions, filterArgs, _ := buildFilterConditions(filters, argIndex)
-		allConditions = append(allConditions, filterConditions...)
-		queryArgs = append(queryArgs, filterArgs...)
-	}
-
-	// Combine all conditions with AND
-	if len(allConditions) > 0 {
-		whereClause = " WHERE " + strings.Join(allConditions, " AND ")
-	}
+	// Build WHERE clause using WhereBuilder
+	wb := NewWhereBuilder()
+	wb.AddSearch(searchQuery, def.FieldSpecs)
+	wb.AddFilters(filters)
+	whereClause, queryArgs := wb.Build()
 
 	// Build aggregation SELECT expressions: SUM, AVG, MIN, MAX, COUNT per column
 	var selectExprs []string
@@ -959,59 +883,16 @@ func (s *Service) GetAllTableData(ctx context.Context, tableKey, searchQuery str
 		return nil, fmt.Errorf("unknown table: %s", tableKey)
 	}
 
-	// Build column names
+	// Build column names using helper
 	displayColumns := def.Info.Columns
-	quotedCols := make([]string, len(displayColumns))
-	for i, col := range displayColumns {
-		dbCol := ""
-		for _, spec := range def.FieldSpecs {
-			if spec.Name == col {
-				dbCol = spec.DBColumn
-				break
-			}
-		}
-		if dbCol == "" {
-			dbCol = toDBColumnName(col)
-		}
-		quotedCols[i] = quoteIdentifier(dbCol)
-	}
+	dbColumns := resolveDBColumns(displayColumns, def.FieldSpecs)
+	quotedCols := quoteColumns(dbColumns)
 
-	// Build WHERE clause combining search and filters
-	var whereClause string
-	var queryArgs []interface{}
-	argIndex := 1
-	var allConditions []string
-
-	// Build search conditions (OR across text columns)
-	if searchQuery != "" {
-		var textConditions []string
-		for _, spec := range def.FieldSpecs {
-			if spec.Type == FieldText {
-				dbCol := spec.DBColumn
-				if dbCol == "" {
-					dbCol = toDBColumnName(spec.Name)
-				}
-				textConditions = append(textConditions, fmt.Sprintf("%s ILIKE $%d", quoteIdentifier(dbCol), argIndex))
-			}
-		}
-		if len(textConditions) > 0 {
-			allConditions = append(allConditions, "("+strings.Join(textConditions, " OR ")+")")
-			queryArgs = append(queryArgs, "%"+searchQuery+"%")
-			argIndex++
-		}
-	}
-
-	// Build filter conditions (AND together)
-	if len(filters.Filters) > 0 {
-		filterConditions, filterArgs, _ := buildFilterConditions(filters, argIndex)
-		allConditions = append(allConditions, filterConditions...)
-		queryArgs = append(queryArgs, filterArgs...)
-	}
-
-	// Combine all conditions with AND
-	if len(allConditions) > 0 {
-		whereClause = " WHERE " + strings.Join(allConditions, " AND ")
-	}
+	// Build WHERE clause using WhereBuilder
+	wb := NewWhereBuilder()
+	wb.AddSearch(searchQuery, def.FieldSpecs)
+	wb.AddFilters(filters)
+	whereClause, queryArgs := wb.Build()
 
 	// Get total count (with search and filter)
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s%s", quoteIdentifier(tableKey), whereClause)

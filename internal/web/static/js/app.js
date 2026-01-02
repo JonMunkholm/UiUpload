@@ -1,9 +1,48 @@
 // ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+// Modal utilities - generic show/hide for any modal
+function showModal(id) {
+    const modal = document.getElementById(id);
+    if (modal) modal.classList.remove('hidden');
+}
+
+function hideModal(id) {
+    const modal = document.getElementById(id);
+    if (modal) modal.classList.add('hidden');
+}
+
+// Storage key generators
+const STORAGE_KEYS = {
+    THEME: 'theme-mode',
+    columns: (tableKey) => `columns_${tableKey}`,
+    sort: (tableKey) => `sort_${tableKey}`,
+    views: (tableKey) => `views_${tableKey}`,
+    metrics: (tableKey) => `agg_metrics_${tableKey}`
+};
+
+// Generic storage helpers with JSON parsing
+function getStorage(key, defaultValue = null) {
+    const data = localStorage.getItem(key);
+    if (!data) return defaultValue;
+    try {
+        return JSON.parse(data);
+    } catch (e) {
+        return defaultValue;
+    }
+}
+
+function setStorage(key, value) {
+    localStorage.setItem(key, JSON.stringify(value));
+}
+
+// ============================================================================
 // THEME MANAGEMENT
 // ============================================================================
 
 function getThemeStorageKey() {
-    return 'theme-mode';
+    return STORAGE_KEYS.THEME;
 }
 
 function getSavedTheme() {
@@ -35,11 +74,11 @@ function toggleTheme() {
 
 // Upload modal handling
 function showUploadModal() {
-    document.getElementById('upload-modal').classList.remove('hidden');
+    showModal('upload-modal');
 }
 
 function hideUploadModal() {
-    document.getElementById('upload-modal').classList.add('hidden');
+    hideModal('upload-modal');
     document.getElementById('upload-progress-container').innerHTML = '';
 }
 
@@ -248,25 +287,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Get localStorage key for a table's column visibility
 function getColumnStorageKey(tableKey) {
-    return 'columns_' + tableKey;
+    return STORAGE_KEYS.columns(tableKey);
 }
 
 // Get visible columns from localStorage (default: all visible)
 function getVisibleColumns(tableKey, allColumns) {
-    const stored = localStorage.getItem(getColumnStorageKey(tableKey));
-    if (stored) {
-        try {
-            return JSON.parse(stored);
-        } catch (e) {
-            return allColumns;
-        }
-    }
-    return allColumns;
+    return getStorage(STORAGE_KEYS.columns(tableKey), allColumns);
 }
 
 // Save visible columns to localStorage
 function saveVisibleColumns(tableKey, columns) {
-    localStorage.setItem(getColumnStorageKey(tableKey), JSON.stringify(columns));
+    setStorage(STORAGE_KEYS.columns(tableKey), columns);
 }
 
 // Get all column names from table headers
@@ -424,33 +455,27 @@ document.body.addEventListener('htmx:afterSwap', function(e) {
 
 // Get localStorage key for a table's sort preference
 function getSortStorageKey(tableKey) {
-    return 'sort_' + tableKey;
+    return STORAGE_KEYS.sort(tableKey);
 }
 
 // Get saved sorts from localStorage (returns array of {column, dir})
 function getSavedSorts(tableKey) {
-    const stored = localStorage.getItem(getSortStorageKey(tableKey));
-    if (stored) {
-        try {
-            const parsed = JSON.parse(stored);
-            // Handle legacy single-sort format
-            if (parsed && parsed.column) {
-                return [{ column: parsed.column, dir: parsed.dir }];
-            }
-            // New array format
-            if (Array.isArray(parsed)) {
-                return parsed;
-            }
-        } catch (e) {
-            return [];
-        }
+    const parsed = getStorage(STORAGE_KEYS.sort(tableKey), null);
+    if (!parsed) return [];
+    // Handle legacy single-sort format
+    if (parsed.column) {
+        return [{ column: parsed.column, dir: parsed.dir }];
+    }
+    // New array format
+    if (Array.isArray(parsed)) {
+        return parsed;
     }
     return [];
 }
 
 // Save sorts to localStorage (array format)
 function saveSorts(tableKey, sorts) {
-    localStorage.setItem(getSortStorageKey(tableKey), JSON.stringify(sorts));
+    setStorage(STORAGE_KEYS.sort(tableKey), sorts);
 }
 
 // Get current sorts from URL
@@ -598,25 +623,17 @@ function initSortPersistence() {
 
 // Get localStorage key for a table's saved views
 function getViewsStorageKey(tableKey) {
-    return 'views_' + tableKey;
+    return STORAGE_KEYS.views(tableKey);
 }
 
 // Get all saved views for a table
 function getSavedViews(tableKey) {
-    const stored = localStorage.getItem(getViewsStorageKey(tableKey));
-    if (stored) {
-        try {
-            return JSON.parse(stored);
-        } catch (e) {
-            return [];
-        }
-    }
-    return [];
+    return getStorage(STORAGE_KEYS.views(tableKey), []);
 }
 
 // Save views array to localStorage
 function saveViews(tableKey, views) {
-    localStorage.setItem(getViewsStorageKey(tableKey), JSON.stringify(views));
+    setStorage(STORAGE_KEYS.views(tableKey), views);
 }
 
 // Capture current view state from URL and localStorage
@@ -1257,7 +1274,7 @@ async function renderPreview(tableLabel, tableKey, expected, uniqueKey, actual, 
     `;
 
     document.getElementById('preview-content').innerHTML = html;
-    document.getElementById('preview-modal').classList.remove('hidden');
+    showModal('preview-modal');
 
     // Start async database check if we have unique keys
     if (hasUniqueKey) {
@@ -1302,7 +1319,7 @@ function confirmUpload() {
             input.value = JSON.stringify(mapping);
         }
 
-        document.getElementById('preview-modal').classList.add('hidden');
+        hideModal('preview-modal');
         // Clear save template container
         const saveTemplateContainer = document.getElementById('save-template-container');
         if (saveTemplateContainer) saveTemplateContainer.innerHTML = '';
@@ -1318,7 +1335,7 @@ function confirmUpload() {
 }
 
 function cancelPreview() {
-    document.getElementById('preview-modal').classList.add('hidden');
+    hideModal('preview-modal');
     // Clear save template container
     const saveTemplateContainer = document.getElementById('save-template-container');
     if (saveTemplateContainer) saveTemplateContainer.innerHTML = '';
@@ -1433,13 +1450,13 @@ function applySelectedTemplate() {
 // Show save template modal
 function showSaveTemplateModal() {
     document.getElementById('template-name-input').value = '';
-    document.getElementById('save-template-modal').classList.remove('hidden');
+    showModal('save-template-modal');
     document.getElementById('template-name-input').focus();
 }
 
 // Hide save template modal
 function hideSaveTemplateModal() {
-    document.getElementById('save-template-modal').classList.add('hidden');
+    hideModal('save-template-modal');
 }
 
 // Save current mapping as a new template
@@ -1512,12 +1529,12 @@ let currentTemplatesTableKey = null;
 
 async function showTemplatesModal(tableKey) {
     currentTemplatesTableKey = tableKey;
-    document.getElementById('templates-modal').classList.remove('hidden');
+    showModal('templates-modal');
     await loadTemplatesList();
 }
 
 function hideTemplatesModal() {
-    document.getElementById('templates-modal').classList.add('hidden');
+    hideModal('templates-modal');
     currentTemplatesTableKey = null;
 }
 
@@ -2212,13 +2229,12 @@ function showDeleteModal() {
     if (deleteCount) {
         deleteCount.textContent = selectedRows.size;
     }
-    document.getElementById('delete-modal').classList.remove('hidden');
+    showModal('delete-modal');
 }
 
 // Hide delete confirmation modal
 function hideDeleteModal() {
-    const modal = document.getElementById('delete-modal');
-    if (modal) modal.classList.add('hidden');
+    hideModal('delete-modal');
 }
 
 // Perform the delete operation
@@ -3090,23 +3106,15 @@ document.addEventListener('DOMContentLoaded', initTableNavigation);
 const DEFAULT_METRICS = ['sum'];  // Default: Sum only
 
 function getMetricsStorageKey(tableKey) {
-    return 'agg_metrics_' + tableKey;
+    return STORAGE_KEYS.metrics(tableKey);
 }
 
 function getSelectedMetrics(tableKey) {
-    const stored = localStorage.getItem(getMetricsStorageKey(tableKey));
-    if (stored) {
-        try {
-            return JSON.parse(stored);
-        } catch (e) {
-            return DEFAULT_METRICS;
-        }
-    }
-    return DEFAULT_METRICS;
+    return getStorage(STORAGE_KEYS.metrics(tableKey), DEFAULT_METRICS);
 }
 
 function saveSelectedMetrics(tableKey, metrics) {
-    localStorage.setItem(getMetricsStorageKey(tableKey), JSON.stringify(metrics));
+    setStorage(STORAGE_KEYS.metrics(tableKey), metrics);
 }
 
 function toggleMetricsDropdown() {
@@ -3248,11 +3256,11 @@ function confirmRollback(btn) {
     pendingRollback = { uploadId, fileName, rowCount };
     document.getElementById('rollback-row-count').textContent = rowCount;
     document.getElementById('rollback-file-name').textContent = fileName || 'Unknown file';
-    document.getElementById('rollback-modal').classList.remove('hidden');
+    showModal('rollback-modal');
 }
 
 function hideRollbackModal() {
-    document.getElementById('rollback-modal').classList.add('hidden');
+    hideModal('rollback-modal');
     pendingRollback = null;
 }
 
@@ -3324,13 +3332,12 @@ function showBulkEditModal() {
     populateBulkEditColumns();
 
     // Show modal
-    document.getElementById('bulk-edit-modal').classList.remove('hidden');
+    showModal('bulk-edit-modal');
 }
 
 // Hide bulk edit modal
 function hideBulkEditModal() {
-    const modal = document.getElementById('bulk-edit-modal');
-    if (modal) modal.classList.add('hidden');
+    hideModal('bulk-edit-modal');
 
     // Clear value container
     const valueContainer = document.getElementById('bulk-edit-value-container');
