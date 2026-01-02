@@ -109,10 +109,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"upload_id": uploadID,
-	})
+	writeJSON(w, map[string]string{"upload_id": uploadID})
 }
 
 // handlePreview analyzes a CSV file and returns what would happen on upload.
@@ -162,8 +159,7 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	writeJSON(w, result)
 }
 
 // handleUploadProgress streams upload progress via Server-Sent Events.
@@ -246,8 +242,7 @@ func (s *Server) handleUploadResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(toResponse(result))
+	writeJSON(w, toResponse(result))
 }
 
 // handleReset deletes all data from a specific table.
@@ -292,8 +287,7 @@ func (s *Server) handleRollbackUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	writeJSON(w, result)
 }
 
 // handleUploadHistory returns the upload history for a table as HTML.
@@ -800,8 +794,7 @@ func (s *Server) handleCheckDuplicates(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(req.Keys) == 0 {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		writeJSON(w, map[string]interface{}{
 			"existing": []string{},
 			"count":    0,
 		})
@@ -815,8 +808,7 @@ func (s *Server) handleCheckDuplicates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	writeJSON(w, map[string]interface{}{
 		"existing": existing,
 		"count":    len(existing),
 	})
@@ -851,8 +843,7 @@ func (s *Server) handleDeleteRows(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int{"deleted": deleted})
+	writeJSON(w, map[string]int{"deleted": deleted})
 }
 
 // handleUpdateCell updates a single cell value.
@@ -890,8 +881,7 @@ func (s *Server) handleUpdateCell(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	writeJSON(w, result)
 }
 
 // handleBulkEdit updates a single column across multiple selected rows.
@@ -932,8 +922,7 @@ func (s *Server) handleBulkEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	writeJSON(w, result)
 }
 
 // handleGetEditHistory returns the edit history for a table.
@@ -958,27 +947,20 @@ func (s *Server) handleGetEditHistory(w http.ResponseWriter, r *http.Request) {
 // handleRevertChange reverts a specific history entry.
 func (s *Server) handleRevertChange(w http.ResponseWriter, r *http.Request) {
 	tableKey := chi.URLParam(r, "tableKey")
-	idStr := chi.URLParam(r, "id")
+	entryID := chi.URLParam(r, "id")
 
-	if tableKey == "" || idStr == "" {
+	if tableKey == "" || entryID == "" {
 		writeError(w, http.StatusBadRequest, "missing parameters")
 		return
 	}
 
-	id, err := strconv.ParseInt(idStr, 10, 32)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-
-	result, err := s.service.RevertChange(r.Context(), tableKey, int32(id))
+	result, err := s.service.RevertChange(r.Context(), tableKey, entryID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	writeJSON(w, result)
 }
 
 // handleListTemplates returns all import templates for a table.

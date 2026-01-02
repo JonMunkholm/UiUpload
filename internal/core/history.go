@@ -7,16 +7,14 @@ import (
 	"log"
 	"strings"
 	"time"
-
-	db "github.com/JonMunkholm/TUI/internal/database"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // EditHistoryEntry represents a single edit operation in the history.
+// This type is kept for backwards compatibility with existing UI code.
 type EditHistoryEntry struct {
-	ID         int32
+	ID         string // Changed from int32 to string (UUID)
 	TableKey   string
-	Action     string // "edit", "delete", "restore"
+	Action     string // "cell_edit", "row_delete", "row_restore"
 	RowKey     string
 	ColumnName string
 	OldValue   string
@@ -25,119 +23,99 @@ type EditHistoryEntry struct {
 	CreatedAt  time.Time
 }
 
-// RecordCellEdit logs a cell edit to the history.
+// RecordCellEdit logs a cell edit to the audit log.
 func (s *Service) RecordCellEdit(ctx context.Context, tableKey, rowKey, column, oldValue, newValue string) error {
-	params := db.InsertEditHistoryParams{
-		TableKey:   tableKey,
-		Action:     "edit",
-		RowKey:     rowKey,
-		ColumnName: pgtype.Text{String: column, Valid: true},
-		OldValue:   pgtype.Text{String: oldValue, Valid: oldValue != ""},
-		NewValue:   pgtype.Text{String: newValue, Valid: newValue != ""},
-		RowData:    nil,
-	}
-
-	_, err := db.New(s.pool).InsertEditHistory(ctx, params)
+	_, err := s.LogAudit(ctx, AuditLogParams{
+		Action:       ActionCellEdit,
+		TableKey:     tableKey,
+		RowKey:       rowKey,
+		ColumnName:   column,
+		OldValue:     oldValue,
+		NewValue:     newValue,
+		RowsAffected: 1,
+	})
 	return err
 }
 
-// RecordRowDelete logs a row deletion to the history.
+// RecordRowDelete logs a row deletion to the audit log.
 func (s *Service) RecordRowDelete(ctx context.Context, tableKey, rowKey string, rowData map[string]interface{}) error {
-	var rowDataJSON []byte
-	if rowData != nil {
-		var err error
-		rowDataJSON, err = json.Marshal(rowData)
-		if err != nil {
-			return fmt.Errorf("marshal row data: %w", err)
-		}
-	}
-
-	params := db.InsertEditHistoryParams{
-		TableKey:   tableKey,
-		Action:     "delete",
-		RowKey:     rowKey,
-		ColumnName: pgtype.Text{Valid: false},
-		OldValue:   pgtype.Text{Valid: false},
-		NewValue:   pgtype.Text{Valid: false},
-		RowData:    rowDataJSON,
-	}
-
-	_, err := db.New(s.pool).InsertEditHistory(ctx, params)
+	_, err := s.LogAudit(ctx, AuditLogParams{
+		Action:       ActionRowDelete,
+		TableKey:     tableKey,
+		RowKey:       rowKey,
+		RowData:      rowData,
+		RowsAffected: 1,
+	})
 	return err
 }
 
 // GetEditHistory returns recent edit history for a table.
+// This wraps the new audit log system for backwards compatibility.
 func (s *Service) GetEditHistory(ctx context.Context, tableKey string, limit int) ([]EditHistoryEntry, error) {
-	rows, err := db.New(s.pool).GetEditHistory(ctx, db.GetEditHistoryParams{
+	auditEntries, err := s.GetAuditLog(ctx, AuditLogFilter{
 		TableKey: tableKey,
-		Limit:    int32(limit),
+		Limit:    limit,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	entries := make([]EditHistoryEntry, 0, len(rows))
-	for _, row := range rows {
+	entries := make([]EditHistoryEntry, 0, len(auditEntries))
+	for _, ae := range auditEntries {
+		// Only include edit/delete/restore actions
+		if ae.Action != ActionCellEdit && ae.Action != ActionRowDelete && ae.Action != ActionRowRestore {
+			continue
+		}
+
 		entry := EditHistoryEntry{
-			ID:        row.ID,
-			TableKey:  row.TableKey,
-			Action:    row.Action,
-			RowKey:    row.RowKey,
-			CreatedAt: row.CreatedAt.Time,
+			ID:         ae.ID,
+			TableKey:   ae.TableKey,
+			Action:     mapAuditActionToHistoryAction(ae.Action),
+			RowKey:     ae.RowKey,
+			ColumnName: ae.ColumnName,
+			OldValue:   ae.OldValue,
+			NewValue:   ae.NewValue,
+			RowData:    ae.RowData,
+			CreatedAt:  ae.CreatedAt,
 		}
-
-		if row.ColumnName.Valid {
-			entry.ColumnName = row.ColumnName.String
-		}
-		if row.OldValue.Valid {
-			entry.OldValue = row.OldValue.String
-		}
-		if row.NewValue.Valid {
-			entry.NewValue = row.NewValue.String
-		}
-		if row.RowData != nil {
-			if err := json.Unmarshal(row.RowData, &entry.RowData); err != nil {
-				log.Printf("failed to unmarshal row data for history entry %d: %v", row.ID, err)
-			}
-		}
-
 		entries = append(entries, entry)
 	}
 
 	return entries, nil
 }
 
+// mapAuditActionToHistoryAction converts audit actions to legacy history actions.
+func mapAuditActionToHistoryAction(action AuditAction) string {
+	switch action {
+	case ActionCellEdit:
+		return "edit"
+	case ActionRowDelete:
+		return "delete"
+	case ActionRowRestore:
+		return "restore"
+	default:
+		return string(action)
+	}
+}
+
 // GetEditHistoryEntry returns a single history entry by ID.
-func (s *Service) GetEditHistoryEntry(ctx context.Context, id int32) (*EditHistoryEntry, error) {
-	row, err := db.New(s.pool).GetEditHistoryEntry(ctx, id)
+func (s *Service) GetEditHistoryEntry(ctx context.Context, id string) (*EditHistoryEntry, error) {
+	ae, err := s.GetAuditLogByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	entry := &EditHistoryEntry{
-		ID:        row.ID,
-		TableKey:  row.TableKey,
-		Action:    row.Action,
-		RowKey:    row.RowKey,
-		CreatedAt: row.CreatedAt.Time,
-	}
-
-	if row.ColumnName.Valid {
-		entry.ColumnName = row.ColumnName.String
-	}
-	if row.OldValue.Valid {
-		entry.OldValue = row.OldValue.String
-	}
-	if row.NewValue.Valid {
-		entry.NewValue = row.NewValue.String
-	}
-	if row.RowData != nil {
-		if err := json.Unmarshal(row.RowData, &entry.RowData); err != nil {
-			log.Printf("failed to unmarshal row data for history entry %d: %v", row.ID, err)
-		}
-	}
-
-	return entry, nil
+	return &EditHistoryEntry{
+		ID:         ae.ID,
+		TableKey:   ae.TableKey,
+		Action:     mapAuditActionToHistoryAction(ae.Action),
+		RowKey:     ae.RowKey,
+		ColumnName: ae.ColumnName,
+		OldValue:   ae.OldValue,
+		NewValue:   ae.NewValue,
+		RowData:    ae.RowData,
+		CreatedAt:  ae.CreatedAt,
+	}, nil
 }
 
 // RevertResult contains the result of a revert operation.
@@ -148,7 +126,7 @@ type RevertResult struct {
 }
 
 // RevertChange reverts a specific history entry.
-func (s *Service) RevertChange(ctx context.Context, tableKey string, entryID int32) (*RevertResult, error) {
+func (s *Service) RevertChange(ctx context.Context, tableKey string, entryID string) (*RevertResult, error) {
 	entry, err := s.GetEditHistoryEntry(ctx, entryID)
 	if err != nil {
 		return nil, fmt.Errorf("get history entry: %w", err)
@@ -176,7 +154,7 @@ func (s *Service) RevertChange(ctx context.Context, tableKey string, entryID int
 			}, nil
 		}
 
-		// Perform the revert (this will create a new history entry)
+		// Perform the revert (this will create a new audit entry)
 		_, err = s.UpdateCell(ctx, tableKey, UpdateCellRequest{
 			RowKey: entry.RowKey,
 			Column: entry.ColumnName,
@@ -394,28 +372,42 @@ func (s *Service) restoreRow(ctx context.Context, tableKey string, rowData map[s
 	return err
 }
 
-// recordRestore logs a restore action to history.
+// recordRestore logs a restore action to the audit log.
 func (s *Service) recordRestore(ctx context.Context, tableKey, rowKey string) {
-	params := db.InsertEditHistoryParams{
-		TableKey:   tableKey,
-		Action:     "restore",
-		RowKey:     rowKey,
-		ColumnName: pgtype.Text{Valid: false},
-		OldValue:   pgtype.Text{Valid: false},
-		NewValue:   pgtype.Text{Valid: false},
-		RowData:    nil,
-	}
-
-	if _, err := db.New(s.pool).InsertEditHistory(ctx, params); err != nil {
+	_, err := s.LogAudit(ctx, AuditLogParams{
+		Action:       ActionRowRestore,
+		TableKey:     tableKey,
+		RowKey:       rowKey,
+		RowsAffected: 1,
+	})
+	if err != nil {
 		log.Printf("failed to record restore action: %v", err)
 	}
 }
 
-// CleanupOldHistory removes history entries older than maxAge.
-func (s *Service) CleanupOldHistory(ctx context.Context, maxAge time.Duration) error {
-	cutoff := time.Now().Add(-maxAge)
-	return db.New(s.pool).DeleteOldHistory(ctx, pgtype.Timestamp{
-		Time:  cutoff,
-		Valid: true,
+// recordRestoreWithRowData logs a restore action with the row data.
+func (s *Service) recordRestoreWithRowData(ctx context.Context, tableKey, rowKey string, rowData map[string]interface{}) {
+	var rowDataJSON []byte
+	if rowData != nil {
+		var err error
+		rowDataJSON, err = json.Marshal(rowData)
+		if err != nil {
+			log.Printf("failed to marshal row data: %v", err)
+		}
+	}
+
+	// Log audit with row data
+	_, err := s.LogAudit(ctx, AuditLogParams{
+		Action:       ActionRowRestore,
+		TableKey:     tableKey,
+		RowKey:       rowKey,
+		RowData:      rowData,
+		RowsAffected: 1,
 	})
+	if err != nil {
+		log.Printf("failed to record restore action: %v", err)
+	}
+
+	// Suppress unused variable warning
+	_ = rowDataJSON
 }

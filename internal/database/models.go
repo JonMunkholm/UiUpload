@@ -5,6 +5,8 @@
 package db
 
 import (
+	"net/netip"
+
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -36,7 +38,54 @@ type AnrokTransaction struct {
 	UploadID                  pgtype.UUID    `json:"upload_id"`
 }
 
-type CellEditHistory struct {
+type AuditLog struct {
+	ID             pgtype.UUID        `json:"id"`
+	Action         string             `json:"action"`
+	Severity       string             `json:"severity"`
+	TableKey       string             `json:"table_key"`
+	UserID         pgtype.Text        `json:"user_id"`
+	UserEmail      pgtype.Text        `json:"user_email"`
+	UserName       pgtype.Text        `json:"user_name"`
+	IpAddress      *netip.Addr        `json:"ip_address"`
+	UserAgent      pgtype.Text        `json:"user_agent"`
+	RowKey         pgtype.Text        `json:"row_key"`
+	ColumnName     pgtype.Text        `json:"column_name"`
+	OldValue       pgtype.Text        `json:"old_value"`
+	NewValue       pgtype.Text        `json:"new_value"`
+	RowData        []byte             `json:"row_data"`
+	RowsAffected   pgtype.Int4        `json:"rows_affected"`
+	UploadID       pgtype.UUID        `json:"upload_id"`
+	BatchID        pgtype.UUID        `json:"batch_id"`
+	RelatedAuditID pgtype.UUID        `json:"related_audit_id"`
+	Reason         pgtype.Text        `json:"reason"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type AuditLogArchive struct {
+	ID             pgtype.UUID        `json:"id"`
+	Action         string             `json:"action"`
+	Severity       string             `json:"severity"`
+	TableKey       string             `json:"table_key"`
+	UserID         pgtype.Text        `json:"user_id"`
+	UserEmail      pgtype.Text        `json:"user_email"`
+	UserName       pgtype.Text        `json:"user_name"`
+	IpAddress      *netip.Addr        `json:"ip_address"`
+	UserAgent      pgtype.Text        `json:"user_agent"`
+	RowKey         pgtype.Text        `json:"row_key"`
+	ColumnName     pgtype.Text        `json:"column_name"`
+	OldValue       pgtype.Text        `json:"old_value"`
+	NewValue       pgtype.Text        `json:"new_value"`
+	RowData        []byte             `json:"row_data"`
+	RowsAffected   pgtype.Int4        `json:"rows_affected"`
+	UploadID       pgtype.UUID        `json:"upload_id"`
+	BatchID        pgtype.UUID        `json:"batch_id"`
+	RelatedAuditID pgtype.UUID        `json:"related_audit_id"`
+	Reason         pgtype.Text        `json:"reason"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	ArchivedAt     pgtype.Timestamptz `json:"archived_at"`
+}
+
+type CellEditHistoryDeprecated struct {
 	ID         int32            `json:"id"`
 	TableKey   string           `json:"table_key"`
 	Action     string           `json:"action"`

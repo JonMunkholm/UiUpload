@@ -2278,7 +2278,7 @@ func EditHistoryItem(tableKey string, entry core.EditHistoryEntry) templ.Compone
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var88 string
-			templ_7745c5c3_Var88, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/revert/%s/%d", tableKey, entry.ID))
+			templ_7745c5c3_Var88, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/revert/%s/%s", tableKey, entry.ID))
 			if templ_7745c5c3_Err != nil {
 				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/web/templates/table_view.templ`, Line: 1314, Col: 66}
 			}
