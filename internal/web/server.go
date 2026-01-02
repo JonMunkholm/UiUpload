@@ -4,6 +4,7 @@ package web
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"log"
@@ -58,6 +59,7 @@ func (s *Server) setupRoutes() {
 	// Pages
 	s.router.Get("/", s.handleDashboard)
 	s.router.Get("/table/{tableKey}", s.handleTableView)
+	s.router.Get("/audit-log", s.handleAuditLog)
 
 	// API routes
 	s.router.Route("/api", func(r chi.Router) {
@@ -98,6 +100,9 @@ func (s *Server) setupRoutes() {
 		// Edit history
 		r.Get("/edit-history/{tableKey}", s.handleGetEditHistory)
 		r.Post("/revert/{tableKey}/{id}", s.handleRevertChange)
+
+		// Audit log
+		r.Get("/audit-log/{id}", s.handleAuditLogEntry)
 
 		// Import templates
 		r.Get("/import-templates/{tableKey}", s.handleListTemplates)
@@ -148,4 +153,13 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	fmt.Fprintf(w, `{"error":%q}`, message)
+}
+
+// writeJSON encodes v as JSON and writes it to w.
+// Logs encoding errors since headers are already sent.
+func writeJSON(w http.ResponseWriter, v interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		log.Printf("json encode error: %v", err)
+	}
 }

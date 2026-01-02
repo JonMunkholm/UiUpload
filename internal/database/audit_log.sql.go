@@ -68,6 +68,53 @@ func (q *Queries) CountAuditLogArchiveByTable(ctx context.Context, arg CountAudi
 	return count, err
 }
 
+const countAuditLogByAction = `-- name: CountAuditLogByAction :one
+SELECT COUNT(*) FROM audit_log
+WHERE action = $1
+  AND created_at >= $2
+  AND created_at <= $3
+`
+
+type CountAuditLogByActionParams struct {
+	Action      string             `json:"action"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	CreatedAt_2 pgtype.Timestamptz `json:"created_at_2"`
+}
+
+func (q *Queries) CountAuditLogByAction(ctx context.Context, arg CountAuditLogByActionParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAuditLogByAction, arg.Action, arg.CreatedAt, arg.CreatedAt_2)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countAuditLogByActionAndTable = `-- name: CountAuditLogByActionAndTable :one
+SELECT COUNT(*) FROM audit_log
+WHERE action = $1
+  AND table_key = $2
+  AND created_at >= $3
+  AND created_at <= $4
+`
+
+type CountAuditLogByActionAndTableParams struct {
+	Action      string             `json:"action"`
+	TableKey    string             `json:"table_key"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	CreatedAt_2 pgtype.Timestamptz `json:"created_at_2"`
+}
+
+func (q *Queries) CountAuditLogByActionAndTable(ctx context.Context, arg CountAuditLogByActionAndTableParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAuditLogByActionAndTable,
+		arg.Action,
+		arg.TableKey,
+		arg.CreatedAt,
+		arg.CreatedAt_2,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countAuditLogByTable = `-- name: CountAuditLogByTable :one
 SELECT COUNT(*) FROM audit_log
 WHERE table_key = $1
@@ -296,6 +343,73 @@ type GetAuditLogByActionParams struct {
 func (q *Queries) GetAuditLogByAction(ctx context.Context, arg GetAuditLogByActionParams) ([]AuditLog, error) {
 	rows, err := q.db.Query(ctx, getAuditLogByAction,
 		arg.Action,
+		arg.CreatedAt,
+		arg.CreatedAt_2,
+		arg.Limit,
+		arg.Offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuditLog{}
+	for rows.Next() {
+		var i AuditLog
+		if err := rows.Scan(
+			&i.ID,
+			&i.Action,
+			&i.Severity,
+			&i.TableKey,
+			&i.UserID,
+			&i.UserEmail,
+			&i.UserName,
+			&i.IpAddress,
+			&i.UserAgent,
+			&i.RowKey,
+			&i.ColumnName,
+			&i.OldValue,
+			&i.NewValue,
+			&i.RowData,
+			&i.RowsAffected,
+			&i.UploadID,
+			&i.BatchID,
+			&i.RelatedAuditID,
+			&i.Reason,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getAuditLogByActionAndTable = `-- name: GetAuditLogByActionAndTable :many
+SELECT id, action, severity, table_key, user_id, user_email, user_name, ip_address, user_agent, row_key, column_name, old_value, new_value, row_data, rows_affected, upload_id, batch_id, related_audit_id, reason, created_at FROM audit_log
+WHERE action = $1
+  AND table_key = $2
+  AND created_at >= $3
+  AND created_at <= $4
+ORDER BY created_at DESC
+LIMIT $5 OFFSET $6
+`
+
+type GetAuditLogByActionAndTableParams struct {
+	Action      string             `json:"action"`
+	TableKey    string             `json:"table_key"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	CreatedAt_2 pgtype.Timestamptz `json:"created_at_2"`
+	Limit       int32              `json:"limit"`
+	Offset      int32              `json:"offset"`
+}
+
+func (q *Queries) GetAuditLogByActionAndTable(ctx context.Context, arg GetAuditLogByActionAndTableParams) ([]AuditLog, error) {
+	rows, err := q.db.Query(ctx, getAuditLogByActionAndTable,
+		arg.Action,
+		arg.TableKey,
 		arg.CreatedAt,
 		arg.CreatedAt_2,
 		arg.Limit,

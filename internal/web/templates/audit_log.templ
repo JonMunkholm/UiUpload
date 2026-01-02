@@ -1,0 +1,494 @@
+package templates
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/JonMunkholm/TUI/internal/core"
+)
+
+// AuditFilter holds the current filter state
+type AuditFilter struct {
+	Action    string
+	TableKey  string
+	Severity  string
+	StartDate string
+	EndDate   string
+}
+
+// AuditLogViewParams holds all data for the audit log view
+type AuditLogViewParams struct {
+	Entries    []core.AuditEntry
+	TotalCount int64
+	Page       int
+	PageSize   int
+	TotalPages int
+	Filter     AuditFilter
+	Tables     []string
+}
+
+// BuildFilterURL constructs a URL with the current filters
+func (p AuditLogViewParams) BuildFilterURL(page int) string {
+	parts := []string{fmt.Sprintf("/audit-log?page=%d", page)}
+	if p.Filter.Action != "" {
+		parts = append(parts, fmt.Sprintf("action=%s", p.Filter.Action))
+	}
+	if p.Filter.TableKey != "" {
+		parts = append(parts, fmt.Sprintf("table=%s", p.Filter.TableKey))
+	}
+	if p.Filter.Severity != "" {
+		parts = append(parts, fmt.Sprintf("severity=%s", p.Filter.Severity))
+	}
+	if p.Filter.StartDate != "" {
+		parts = append(parts, fmt.Sprintf("from=%s", p.Filter.StartDate))
+	}
+	if p.Filter.EndDate != "" {
+		parts = append(parts, fmt.Sprintf("to=%s", p.Filter.EndDate))
+	}
+	return strings.Join(parts, "&")
+}
+
+// AuditLogPage renders the full audit log page with layout
+templ AuditLogPage(params AuditLogViewParams) {
+	@Layout("Audit Log") {
+		<div class="space-y-6">
+			<div class="flex items-center justify-between">
+				<h1 class="text-2xl font-semibold text-gray-900 dark:text-white">Audit Log</h1>
+				<div class="text-sm text-gray-500 dark:text-gray-400">
+					{ fmt.Sprintf("%d entries", params.TotalCount) }
+				</div>
+			</div>
+			<div id="audit-content">
+				@AuditLogPartial(params)
+			</div>
+		</div>
+	}
+}
+
+// AuditLogPartial renders the filterable content (for HTMX swaps)
+templ AuditLogPartial(params AuditLogViewParams) {
+	<div class="space-y-4">
+		@AuditLogFilters(params)
+		@AuditLogList(params)
+		if params.TotalPages > 1 {
+			@AuditLogPagination(params)
+		}
+	</div>
+}
+
+// AuditLogFilters renders the filter controls
+templ AuditLogFilters(params AuditLogViewParams) {
+	<form
+		hx-get="/audit-log"
+		hx-target="#audit-content"
+		hx-swap="innerHTML"
+		hx-push-url="true"
+		class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 space-y-4"
+	>
+		<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+			<!-- Action Filter -->
+			<div>
+				<label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Action</label>
+				<select
+					name="action"
+					class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm focus:ring-blue-500 focus:border-blue-500"
+				>
+					<option value="">All Actions</option>
+					<option value="upload" selected?={ params.Filter.Action == "upload" }>Upload</option>
+					<option value="upload_rollback" selected?={ params.Filter.Action == "upload_rollback" }>Rollback</option>
+					<option value="cell_edit" selected?={ params.Filter.Action == "cell_edit" }>Cell Edit</option>
+					<option value="bulk_edit" selected?={ params.Filter.Action == "bulk_edit" }>Bulk Edit</option>
+					<option value="row_delete" selected?={ params.Filter.Action == "row_delete" }>Row Delete</option>
+					<option value="row_restore" selected?={ params.Filter.Action == "row_restore" }>Row Restore</option>
+					<option value="table_reset" selected?={ params.Filter.Action == "table_reset" }>Table Reset</option>
+					<option value="template_create" selected?={ params.Filter.Action == "template_create" }>Template Create</option>
+					<option value="template_update" selected?={ params.Filter.Action == "template_update" }>Template Update</option>
+					<option value="template_delete" selected?={ params.Filter.Action == "template_delete" }>Template Delete</option>
+				</select>
+			</div>
+			<!-- Table Filter -->
+			<div>
+				<label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Table</label>
+				<select
+					name="table"
+					class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm focus:ring-blue-500 focus:border-blue-500"
+				>
+					<option value="">All Tables</option>
+					for _, t := range params.Tables {
+						<option value={ t } selected?={ params.Filter.TableKey == t }>{ t }</option>
+					}
+				</select>
+			</div>
+			<!-- Severity Filter -->
+			<div>
+				<label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Severity</label>
+				<select
+					name="severity"
+					class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm focus:ring-blue-500 focus:border-blue-500"
+				>
+					<option value="">All Severities</option>
+					<option value="low" selected?={ params.Filter.Severity == "low" }>Low</option>
+					<option value="medium" selected?={ params.Filter.Severity == "medium" }>Medium</option>
+					<option value="high" selected?={ params.Filter.Severity == "high" }>High</option>
+					<option value="critical" selected?={ params.Filter.Severity == "critical" }>Critical</option>
+				</select>
+			</div>
+			<!-- Date From -->
+			<div>
+				<label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">From</label>
+				<input
+					type="date"
+					name="from"
+					value={ params.Filter.StartDate }
+					class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm focus:ring-blue-500 focus:border-blue-500"
+				/>
+			</div>
+			<!-- Date To -->
+			<div>
+				<label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">To</label>
+				<input
+					type="date"
+					name="to"
+					value={ params.Filter.EndDate }
+					class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm focus:ring-blue-500 focus:border-blue-500"
+				/>
+			</div>
+		</div>
+		<div class="flex items-center gap-2">
+			<button
+				type="submit"
+				class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+			>
+				Apply Filters
+			</button>
+			<a
+				href="/audit-log"
+				hx-get="/audit-log"
+				hx-target="#audit-content"
+				hx-swap="innerHTML"
+				hx-push-url="true"
+				class="px-4 py-2 text-gray-600 dark:text-gray-300 text-sm font-medium rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
+			>
+				Clear
+			</a>
+		</div>
+	</form>
+}
+
+// AuditLogList renders the list of audit entries
+templ AuditLogList(params AuditLogViewParams) {
+	<div class="bg-white dark:bg-gray-800 rounded-lg shadow divide-y divide-gray-200 dark:divide-gray-700">
+		if len(params.Entries) == 0 {
+			<div class="p-8 text-center text-gray-500 dark:text-gray-400">
+				No audit entries found
+			</div>
+		} else {
+			for _, entry := range params.Entries {
+				@AuditEntryRow(entry)
+			}
+		}
+	</div>
+}
+
+// AuditEntryRow renders a single expandable audit entry
+templ AuditEntryRow(entry core.AuditEntry) {
+	<details class="group">
+		<summary class="flex items-center gap-4 p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 list-none">
+			<!-- Expand indicator -->
+			<svg class="w-4 h-4 text-gray-400 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+			</svg>
+			<!-- Action badge -->
+			@ActionBadge(entry.Action)
+			<!-- Table name -->
+			<span class="text-sm text-gray-700 dark:text-gray-300 font-medium min-w-24">
+				{ entry.TableKey }
+			</span>
+			<!-- Severity badge -->
+			@SeverityBadge(entry.Severity)
+			<!-- Summary text -->
+			<span class="flex-1 text-sm text-gray-500 dark:text-gray-400 truncate">
+				{ auditEntrySummary(entry) }
+			</span>
+			<!-- Timestamp -->
+			<span class="text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap">
+				{ formatTimeAgo(entry.CreatedAt) }
+			</span>
+		</summary>
+		<!-- Detail panel (lazy loaded) -->
+		<div
+			hx-get={ fmt.Sprintf("/api/audit-log/%s", entry.ID) }
+			hx-trigger="toggle once from:closest details"
+			hx-swap="innerHTML"
+			class="px-4 pb-4 pt-2 ml-8 border-l-2 border-gray-200 dark:border-gray-600"
+		>
+			<span class="text-sm text-gray-400">Loading...</span>
+		</div>
+	</details>
+}
+
+// AuditEntryDetail renders the full detail view of an audit entry
+templ AuditEntryDetail(entry core.AuditEntry) {
+	<div class="space-y-3 text-sm">
+		<!-- Timestamp and ID -->
+		<div class="flex items-center gap-4 text-gray-500 dark:text-gray-400">
+			<span>{ entry.CreatedAt.Format("Jan 2, 2006 3:04:05 PM") }</span>
+			<span class="text-xs font-mono bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded">{ entry.ID }</span>
+		</div>
+		<!-- User/IP info -->
+		if entry.IPAddress != "" || entry.UserEmail != "" {
+			<div class="flex items-center gap-4 text-gray-600 dark:text-gray-300">
+				if entry.UserEmail != "" {
+					<div class="flex items-center gap-1">
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+						</svg>
+						<span>{ entry.UserEmail }</span>
+					</div>
+				}
+				if entry.IPAddress != "" {
+					<div class="flex items-center gap-1">
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path>
+						</svg>
+						<span class="font-mono text-xs">{ entry.IPAddress }</span>
+					</div>
+				}
+			</div>
+		}
+		<!-- Row/Column info -->
+		if entry.RowKey != "" || entry.ColumnName != "" {
+			<div class="flex items-center gap-4 text-gray-600 dark:text-gray-300">
+				if entry.RowKey != "" {
+					<div>
+						<span class="text-gray-400">Row:</span>
+						<span class="font-mono">{ entry.RowKey }</span>
+					</div>
+				}
+				if entry.ColumnName != "" {
+					<div>
+						<span class="text-gray-400">Column:</span>
+						<span class="font-medium">{ entry.ColumnName }</span>
+					</div>
+				}
+			</div>
+		}
+		<!-- Old/New values -->
+		if entry.OldValue != "" || entry.NewValue != "" {
+			<div class="grid grid-cols-2 gap-4">
+				if entry.OldValue != "" {
+					<div class="bg-red-50 dark:bg-red-900/20 rounded p-2">
+						<div class="text-xs text-red-600 dark:text-red-400 mb-1">Old Value</div>
+						<div class="font-mono text-red-800 dark:text-red-300 break-all">{ entry.OldValue }</div>
+					</div>
+				}
+				if entry.NewValue != "" {
+					<div class="bg-green-50 dark:bg-green-900/20 rounded p-2">
+						<div class="text-xs text-green-600 dark:text-green-400 mb-1">New Value</div>
+						<div class="font-mono text-green-800 dark:text-green-300 break-all">{ entry.NewValue }</div>
+					</div>
+				}
+			</div>
+		}
+		<!-- Rows affected -->
+		if entry.RowsAffected > 0 {
+			<div class="text-gray-600 dark:text-gray-300">
+				<span class="text-gray-400">Rows affected:</span>
+				<span class="font-medium">{ fmt.Sprintf("%d", entry.RowsAffected) }</span>
+			</div>
+		}
+		<!-- Reason -->
+		if entry.Reason != "" {
+			<div class="text-gray-600 dark:text-gray-300">
+				<span class="text-gray-400">Reason:</span>
+				<span>{ entry.Reason }</span>
+			</div>
+		}
+		<!-- Upload ID -->
+		if entry.UploadID != "" {
+			<div class="text-gray-600 dark:text-gray-300">
+				<span class="text-gray-400">Upload ID:</span>
+				<span class="font-mono text-xs">{ entry.UploadID }</span>
+			</div>
+		}
+	</div>
+}
+
+// SeverityBadge renders a color-coded severity indicator
+templ SeverityBadge(severity core.AuditSeverity) {
+	switch severity {
+		case core.SeverityLow:
+			<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+				low
+			</span>
+		case core.SeverityMedium:
+			<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+				medium
+			</span>
+		case core.SeverityHigh:
+			<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+				high
+			</span>
+		case core.SeverityCritical:
+			<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300">
+				critical
+			</span>
+		default:
+			<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+				{ string(severity) }
+			</span>
+	}
+}
+
+// ActionBadge renders an action type badge
+templ ActionBadge(action core.AuditAction) {
+	switch action {
+		case core.ActionUpload:
+			<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">
+				upload
+			</span>
+		case core.ActionUploadRollback:
+			<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">
+				rollback
+			</span>
+		case core.ActionCellEdit:
+			<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+				edit
+			</span>
+		case core.ActionBulkEdit:
+			<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+				bulk edit
+			</span>
+		case core.ActionRowDelete:
+			<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300">
+				delete
+			</span>
+		case core.ActionRowRestore:
+			<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">
+				restore
+			</span>
+		case core.ActionTableReset:
+			<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300">
+				reset
+			</span>
+		default:
+			<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+				{ string(action) }
+			</span>
+	}
+}
+
+// AuditLogPagination renders pagination controls
+templ AuditLogPagination(params AuditLogViewParams) {
+	<div class="flex items-center justify-between bg-white dark:bg-gray-800 rounded-lg shadow px-4 py-3">
+		<div class="text-sm text-gray-500 dark:text-gray-400">
+			{ fmt.Sprintf("Showing %d-%d of %d",
+				(params.Page-1)*params.PageSize+1,
+				min((params.Page)*params.PageSize, int(params.TotalCount)),
+				params.TotalCount) }
+		</div>
+		<div class="flex items-center gap-2">
+			if params.Page > 1 {
+				<button
+					hx-get={ params.BuildFilterURL(params.Page - 1) }
+					hx-target="#audit-content"
+					hx-swap="innerHTML"
+					hx-push-url="true"
+					class="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+				>
+					Previous
+				</button>
+			}
+			<!-- Page numbers -->
+			for i := max(1, params.Page-2); i <= min(params.TotalPages, params.Page+2); i++ {
+				if i == params.Page {
+					<span class="px-3 py-1 text-sm bg-blue-600 text-white rounded">
+						{ fmt.Sprintf("%d", i) }
+					</span>
+				} else {
+					<button
+						hx-get={ params.BuildFilterURL(i) }
+						hx-target="#audit-content"
+						hx-swap="innerHTML"
+						hx-push-url="true"
+						class="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+					>
+						{ fmt.Sprintf("%d", i) }
+					</button>
+				}
+			}
+			if params.Page < params.TotalPages {
+				<button
+					hx-get={ params.BuildFilterURL(params.Page + 1) }
+					hx-target="#audit-content"
+					hx-swap="innerHTML"
+					hx-push-url="true"
+					class="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+				>
+					Next
+				</button>
+			}
+		</div>
+	</div>
+}
+
+// Helper function to generate summary text for an audit entry
+func auditEntrySummary(entry core.AuditEntry) string {
+	switch entry.Action {
+	case core.ActionUpload:
+		if entry.RowsAffected > 0 {
+			return fmt.Sprintf("%d rows uploaded", entry.RowsAffected)
+		}
+		return "File uploaded"
+	case core.ActionUploadRollback:
+		if entry.RowsAffected > 0 {
+			return fmt.Sprintf("%d rows rolled back", entry.RowsAffected)
+		}
+		return "Upload rolled back"
+	case core.ActionCellEdit:
+		if entry.ColumnName != "" {
+			return fmt.Sprintf("Edited %s", entry.ColumnName)
+		}
+		return "Cell edited"
+	case core.ActionBulkEdit:
+		if entry.RowsAffected > 0 && entry.ColumnName != "" {
+			return fmt.Sprintf("%d rows: %s", entry.RowsAffected, entry.ColumnName)
+		}
+		return "Bulk edit"
+	case core.ActionRowDelete:
+		return "Row deleted"
+	case core.ActionRowRestore:
+		return "Row restored"
+	case core.ActionTableReset:
+		if entry.RowsAffected > 0 {
+			return fmt.Sprintf("%d rows deleted", entry.RowsAffected)
+		}
+		return "Table reset"
+	case core.ActionTemplateCreate, core.ActionTemplateUpdate, core.ActionTemplateDelete:
+		if entry.Reason != "" {
+			return entry.Reason
+		}
+		return string(entry.Action)
+	default:
+		if entry.Reason != "" {
+			return entry.Reason
+		}
+		return string(entry.Action)
+	}
+}
+
+// Helper functions
+// Note: formatTimeAgo is defined in dashboard.templ
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}

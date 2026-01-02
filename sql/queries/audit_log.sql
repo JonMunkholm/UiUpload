@@ -77,3 +77,25 @@ WHERE table_key = $1
 SELECT COUNT(*) FROM audit_log_archive
 WHERE created_at >= $1
   AND created_at <= $2;
+
+-- name: CountAuditLogByAction :one
+SELECT COUNT(*) FROM audit_log
+WHERE action = $1
+  AND created_at >= $2
+  AND created_at <= $3;
+
+-- name: GetAuditLogByActionAndTable :many
+SELECT * FROM audit_log
+WHERE action = $1
+  AND table_key = $2
+  AND created_at >= $3
+  AND created_at <= $4
+ORDER BY created_at DESC
+LIMIT $5 OFFSET $6;
+
+-- name: CountAuditLogByActionAndTable :one
+SELECT COUNT(*) FROM audit_log
+WHERE action = $1
+  AND table_key = $2
+  AND created_at >= $3
+  AND created_at <= $4;

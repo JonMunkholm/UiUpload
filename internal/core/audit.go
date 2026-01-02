@@ -180,7 +180,28 @@ func (s *Service) GetAuditLog(ctx context.Context, filter AuditLogFilter) ([]Aud
 	var rows []db.AuditLog
 	var err error
 
-	if filter.TableKey != "" {
+	switch {
+	case filter.Action != "" && filter.TableKey != "":
+		// Both action and table filter
+		rows, err = db.New(s.pool).GetAuditLogByActionAndTable(ctx, db.GetAuditLogByActionAndTableParams{
+			Action:      string(filter.Action),
+			TableKey:    filter.TableKey,
+			CreatedAt:   startTime,
+			CreatedAt_2: endTime,
+			Limit:       int32(filter.Limit),
+			Offset:      int32(filter.Offset),
+		})
+	case filter.Action != "":
+		// Action filter only
+		rows, err = db.New(s.pool).GetAuditLogByAction(ctx, db.GetAuditLogByActionParams{
+			Action:      string(filter.Action),
+			CreatedAt:   startTime,
+			CreatedAt_2: endTime,
+			Limit:       int32(filter.Limit),
+			Offset:      int32(filter.Offset),
+		})
+	case filter.TableKey != "":
+		// Table filter only
 		rows, err = db.New(s.pool).GetAuditLogByTable(ctx, db.GetAuditLogByTableParams{
 			TableKey:    filter.TableKey,
 			CreatedAt:   startTime,
@@ -188,7 +209,8 @@ func (s *Service) GetAuditLog(ctx context.Context, filter AuditLogFilter) ([]Aud
 			Limit:       int32(filter.Limit),
 			Offset:      int32(filter.Offset),
 		})
-	} else {
+	default:
+		// No filter
 		rows, err = db.New(s.pool).GetAuditLogAll(ctx, db.GetAuditLogAllParams{
 			CreatedAt:   startTime,
 			CreatedAt_2: endTime,
@@ -231,18 +253,32 @@ func (s *Service) CountAuditLog(ctx context.Context, filter AuditLogFilter) (int
 		endTime = pgtype.Timestamptz{Time: time.Now().Add(24 * time.Hour), Valid: true}
 	}
 
-	if filter.TableKey != "" {
+	switch {
+	case filter.Action != "" && filter.TableKey != "":
+		return db.New(s.pool).CountAuditLogByActionAndTable(ctx, db.CountAuditLogByActionAndTableParams{
+			Action:      string(filter.Action),
+			TableKey:    filter.TableKey,
+			CreatedAt:   startTime,
+			CreatedAt_2: endTime,
+		})
+	case filter.Action != "":
+		return db.New(s.pool).CountAuditLogByAction(ctx, db.CountAuditLogByActionParams{
+			Action:    string(filter.Action),
+			CreatedAt: startTime,
+			CreatedAt_2: endTime,
+		})
+	case filter.TableKey != "":
 		return db.New(s.pool).CountAuditLogByTable(ctx, db.CountAuditLogByTableParams{
 			TableKey:    filter.TableKey,
 			CreatedAt:   startTime,
 			CreatedAt_2: endTime,
 		})
+	default:
+		return db.New(s.pool).CountAuditLogAll(ctx, db.CountAuditLogAllParams{
+			CreatedAt:   startTime,
+			CreatedAt_2: endTime,
+		})
 	}
-
-	return db.New(s.pool).CountAuditLogAll(ctx, db.CountAuditLogAllParams{
-		CreatedAt:   startTime,
-		CreatedAt_2: endTime,
-	})
 }
 
 // GetAuditLogArchive retrieves archived audit log entries.

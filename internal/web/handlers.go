@@ -1127,3 +1127,105 @@ func (s *Server) handleDeleteTemplate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"deleted"}`))
 }
+
+// handleAuditLog renders the audit log page with filtering and pagination.
+func (s *Server) handleAuditLog(w http.ResponseWriter, r *http.Request) {
+	// Parse query parameters
+	page := parseIntParam(r, "page", 1)
+	pageSize := 50
+
+	// Parse filters
+	filter := templates.AuditFilter{
+		Action:    r.URL.Query().Get("action"),
+		TableKey:  r.URL.Query().Get("table"),
+		Severity:  r.URL.Query().Get("severity"),
+		StartDate: r.URL.Query().Get("from"),
+		EndDate:   r.URL.Query().Get("to"),
+	}
+
+	// Build core filter
+	coreFilter := core.AuditLogFilter{
+		TableKey: filter.TableKey,
+		Action:   core.AuditAction(filter.Action),
+		Limit:    pageSize,
+		Offset:   (page - 1) * pageSize,
+	}
+
+	// Parse date filters
+	if filter.StartDate != "" {
+		if t, err := time.Parse("2006-01-02", filter.StartDate); err == nil {
+			coreFilter.StartTime = t
+		}
+	}
+	if filter.EndDate != "" {
+		if t, err := time.Parse("2006-01-02", filter.EndDate); err == nil {
+			// End of day
+			coreFilter.EndTime = t.Add(24*time.Hour - time.Second)
+		}
+	}
+
+	// Fetch entries
+	entries, err := s.service.GetAuditLog(r.Context(), coreFilter)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Filter by severity in-memory (no SQL query for severity)
+	if filter.Severity != "" {
+		filtered := make([]core.AuditEntry, 0)
+		for _, e := range entries {
+			if string(e.Severity) == filter.Severity {
+				filtered = append(filtered, e)
+			}
+		}
+		entries = filtered
+	}
+
+	// Get total count
+	totalCount, err := s.service.CountAuditLog(r.Context(), coreFilter)
+	if err != nil {
+		totalCount = int64(len(entries))
+	}
+
+	// Get table list for filter dropdown
+	tables := make([]string, 0)
+	for _, def := range core.All() {
+		tables = append(tables, def.Info.Key)
+	}
+
+	// Build view params
+	params := templates.AuditLogViewParams{
+		Entries:    entries,
+		TotalCount: totalCount,
+		Page:       page,
+		PageSize:   pageSize,
+		TotalPages: int((totalCount + int64(pageSize) - 1) / int64(pageSize)),
+		Filter:     filter,
+		Tables:     tables,
+	}
+
+	// Render
+	if r.Header.Get("HX-Request") == "true" {
+		templates.AuditLogPartial(params).Render(r.Context(), w)
+	} else {
+		templates.AuditLogPage(params).Render(r.Context(), w)
+	}
+}
+
+// handleAuditLogEntry returns the detail view for a single audit entry.
+func (s *Server) handleAuditLogEntry(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing audit log id")
+		return
+	}
+
+	entry, err := s.service.GetAuditLogByID(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "audit entry not found")
+		return
+	}
+
+	templates.AuditEntryDetail(*entry).Render(r.Context(), w)
+}
