@@ -977,6 +977,8 @@ function showPreview(input) {
     const tableKey = form.id.replace('upload-form-', '');
 
     currentPreviewForm = form;
+    currentPreviewFile = file;
+    currentPreviewTableKey = tableKey;
 
     const reader = new FileReader();
     reader.onload = function(e) {
@@ -1198,23 +1200,25 @@ function renderPreview(tableLabel, tableKey, expected, uniqueKey, actual, rows, 
         ${csvDuplicatesSection}
         ${dbDuplicatesSection}
 
-        <div class="text-sm font-medium text-gray-700 mb-2">Preview (first ${rows.length} rows)</div>
-        <div class="overflow-x-auto border rounded-lg">
+        <div class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Preview (first ${rows.length} rows)</div>
+        <div class="overflow-x-auto border rounded-lg dark:border-gray-700">
             <table class="min-w-full text-xs">
-                <thead class="bg-gray-50">
+                <thead class="bg-gray-50 dark:bg-gray-800">
                     <tr>
-                        ${actual.map(h => `<th class="px-3 py-2 text-left font-medium text-gray-600">${escapeHtml(h)}</th>`).join('')}
+                        ${actual.map(h => `<th class="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-400">${escapeHtml(h)}</th>`).join('')}
                     </tr>
                 </thead>
-                <tbody class="divide-y">
+                <tbody class="divide-y dark:divide-gray-700">
                     ${rows.map(row => `
                         <tr>
-                            ${row.map(cell => `<td class="px-3 py-2 text-gray-700 whitespace-nowrap">${escapeHtml(cell || '-')}</td>`).join('')}
+                            ${row.map(cell => `<td class="px-3 py-2 text-gray-700 dark:text-gray-300 whitespace-nowrap">${escapeHtml(cell || '-')}</td>`).join('')}
                         </tr>
                     `).join('')}
                 </tbody>
             </table>
         </div>
+
+        <div id="analysis-section">${renderAnalysisLoading()}</div>
     `;
 
     document.getElementById('preview-content').innerHTML = html;
@@ -1242,6 +1246,9 @@ function renderPreview(tableLabel, tableKey, expected, uniqueKey, actual, rows, 
             if (section) section.remove();
         }
     }
+
+    // Auto-trigger upload analysis
+    triggerAnalysis();
 }
 
 function confirmUpload() {
@@ -1263,6 +1270,10 @@ function confirmUpload() {
         document.getElementById('preview-modal').classList.add('hidden');
         htmx.trigger(currentPreviewForm, 'upload');
         currentPreviewForm = null;
+        // Reset analysis state
+        currentPreviewFile = null;
+        currentPreviewTableKey = null;
+        currentPreviewMapping = null;
     }
 }
 
@@ -1276,6 +1287,10 @@ function cancelPreview() {
         if (mappingInput) mappingInput.remove();
         currentPreviewForm = null;
     }
+    // Reset analysis state
+    currentPreviewFile = null;
+    currentPreviewTableKey = null;
+    currentPreviewMapping = null;
 }
 
 // Close preview modal on outside click
@@ -1494,6 +1509,328 @@ function formatDBDuplicatesWarning(existing, uniqueKey, loading = false, error =
 
     html += '</div></div>';
     return html;
+}
+
+// ============================================================================
+// Upload Preview Analysis
+// ============================================================================
+
+// State for current preview
+let currentPreviewFile = null;
+let currentPreviewTableKey = null;
+let currentPreviewMapping = null;
+
+// Analyze upload and show detailed preview
+async function analyzeUpload(tableKey, file, mapping) {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (mapping) {
+        formData.append('mapping', JSON.stringify(mapping));
+    }
+
+    try {
+        const response = await fetch(`/api/preview/${tableKey}`, {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Analysis failed');
+        }
+
+        return await response.json();
+    } catch (e) {
+        console.error('Analysis error:', e);
+        throw e;
+    }
+}
+
+// Trigger analysis after column mapping is set
+function triggerAnalysis() {
+    if (!currentPreviewFile || !currentPreviewTableKey) return;
+
+    const mapping = collectMapping();
+    currentPreviewMapping = mapping;
+
+    // Show loading state
+    const analysisSection = document.getElementById('analysis-section');
+    if (analysisSection) {
+        analysisSection.innerHTML = renderAnalysisLoading();
+    }
+
+    analyzeUpload(currentPreviewTableKey, currentPreviewFile, mapping)
+        .then(result => {
+            if (analysisSection) {
+                analysisSection.innerHTML = renderAnalysisResults(result);
+                setupAnalysisTabs();
+            }
+        })
+        .catch(err => {
+            if (analysisSection) {
+                analysisSection.innerHTML = renderAnalysisError(err.message);
+            }
+        });
+}
+
+// Render loading spinner for analysis
+function renderAnalysisLoading() {
+    return `
+        <div class="mt-4 p-4 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+            <div class="flex items-center justify-center gap-3">
+                <svg class="w-5 h-5 text-blue-500 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span class="text-sm text-gray-600 dark:text-gray-400">Analyzing upload...</span>
+            </div>
+        </div>
+    `;
+}
+
+// Render analysis error
+function renderAnalysisError(message) {
+    return `
+        <div class="mt-4 p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+            <div class="flex items-center gap-2">
+                <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <span class="text-sm text-red-700 dark:text-red-400">Analysis failed: ${escapeHtml(message)}</span>
+            </div>
+        </div>
+    `;
+}
+
+// Render complete analysis results
+function renderAnalysisResults(result) {
+    const { summary, newRowSamples, updateDiffs, errorSamples, duplicateSamples, processingTimeMs } = result;
+
+    // Summary cards
+    const summaryHtml = `
+        <div class="grid grid-cols-4 gap-3 mb-4">
+            <div class="p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-center">
+                <div class="text-2xl font-bold text-green-600 dark:text-green-400">${summary.newRows}</div>
+                <div class="text-xs text-green-700 dark:text-green-500">New</div>
+            </div>
+            <div class="p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-center">
+                <div class="text-2xl font-bold text-blue-600 dark:text-blue-400">${summary.updateRows}</div>
+                <div class="text-xs text-blue-700 dark:text-blue-500">Updates</div>
+            </div>
+            <div class="p-3 rounded-lg ${summary.errorRows > 0 ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'} border text-center">
+                <div class="text-2xl font-bold ${summary.errorRows > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-400 dark:text-gray-500'}">${summary.errorRows}</div>
+                <div class="text-xs ${summary.errorRows > 0 ? 'text-red-700 dark:text-red-500' : 'text-gray-500 dark:text-gray-400'}">Errors</div>
+            </div>
+            <div class="p-3 rounded-lg ${summary.duplicateInFile > 0 ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800' : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'} border text-center">
+                <div class="text-2xl font-bold ${summary.duplicateInFile > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-400 dark:text-gray-500'}">${summary.duplicateInFile}</div>
+                <div class="text-xs ${summary.duplicateInFile > 0 ? 'text-amber-700 dark:text-amber-500' : 'text-gray-500 dark:text-gray-400'}">Duplicates</div>
+            </div>
+        </div>
+    `;
+
+    // Determine which tabs to show
+    const hasUpdates = updateDiffs && updateDiffs.length > 0;
+    const hasErrors = errorSamples && errorSamples.length > 0;
+    const hasNew = newRowSamples && newRowSamples.length > 0;
+    const hasDuplicates = duplicateSamples && duplicateSamples.length > 0;
+
+    // Tabs
+    const tabsHtml = `
+        <div class="border-b border-gray-200 dark:border-gray-700 mb-3">
+            <nav class="flex gap-1 -mb-px" id="analysis-tabs">
+                ${hasUpdates ? `<button class="analysis-tab px-3 py-2 text-sm font-medium border-b-2 border-blue-500 text-blue-600 dark:text-blue-400" data-tab="updates">Updates (${updateDiffs.length}${summary.updateRows > updateDiffs.length ? '+' : ''})</button>` : ''}
+                ${hasErrors ? `<button class="analysis-tab px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" data-tab="errors">Errors (${errorSamples.length}${summary.errorRows > errorSamples.length ? '+' : ''})</button>` : ''}
+                ${hasNew ? `<button class="analysis-tab px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" data-tab="new">New (${newRowSamples.length}${summary.newRows > newRowSamples.length ? '+' : ''})</button>` : ''}
+                ${hasDuplicates ? `<button class="analysis-tab px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" data-tab="duplicates">Duplicates</button>` : ''}
+            </nav>
+        </div>
+    `;
+
+    // Tab content
+    const updatesContent = hasUpdates ? renderUpdateDiffs(updateDiffs, summary.updateRows) : '';
+    const errorsContent = hasErrors ? renderErrorSamples(errorSamples, summary.errorRows) : '';
+    const newContent = hasNew ? renderNewRowSamples(newRowSamples, summary.newRows) : '';
+    const duplicatesContent = hasDuplicates ? renderDuplicateSamples(duplicateSamples, summary.duplicateInFile) : '';
+
+    // Default to first available tab
+    const defaultTab = hasUpdates ? 'updates' : hasErrors ? 'errors' : hasNew ? 'new' : 'duplicates';
+
+    const tabContentHtml = `
+        <div id="analysis-tab-content">
+            ${hasUpdates ? `<div class="tab-panel ${defaultTab === 'updates' ? '' : 'hidden'}" data-panel="updates">${updatesContent}</div>` : ''}
+            ${hasErrors ? `<div class="tab-panel ${defaultTab === 'errors' ? '' : 'hidden'}" data-panel="errors">${errorsContent}</div>` : ''}
+            ${hasNew ? `<div class="tab-panel ${defaultTab === 'new' ? '' : 'hidden'}" data-panel="new">${newContent}</div>` : ''}
+            ${hasDuplicates ? `<div class="tab-panel ${defaultTab === 'duplicates' ? '' : 'hidden'}" data-panel="duplicates">${duplicatesContent}</div>` : ''}
+        </div>
+    `;
+
+    // No data message
+    const noDataHtml = !hasUpdates && !hasErrors && !hasNew && !hasDuplicates ? `
+        <div class="text-center text-gray-500 dark:text-gray-400 py-4">
+            <svg class="w-8 h-8 mx-auto mb-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+            </svg>
+            <div>All ${summary.newRows} rows are new and valid</div>
+        </div>
+    ` : '';
+
+    const processingTime = processingTimeMs ? `<div class="text-xs text-gray-400 dark:text-gray-500 mt-2 text-right">Analyzed in ${processingTimeMs}ms</div>` : '';
+
+    return `
+        <div class="mt-4 p-4 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+            <div class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Upload Analysis</div>
+            ${summaryHtml}
+            ${hasUpdates || hasErrors || hasNew || hasDuplicates ? tabsHtml + tabContentHtml : noDataHtml}
+            ${processingTime}
+        </div>
+    `;
+}
+
+// Render update diffs table
+function renderUpdateDiffs(diffs, totalUpdates) {
+    const showingInfo = diffs.length < totalUpdates ? `<div class="text-xs text-gray-500 dark:text-gray-400 mb-2">Showing ${diffs.length} of ${totalUpdates} updates</div>` : '';
+
+    const rows = diffs.map(diff => {
+        const changedCols = new Set(diff.changed || []);
+        const allCols = Object.keys(diff.incoming);
+
+        return `
+            <div class="mb-3 p-2 rounded border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+                <div class="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    Row ${diff.lineNumber} • Key: <span class="font-mono">${escapeHtml(diff.rowKey)}</span>
+                </div>
+                <table class="w-full text-xs">
+                    <thead>
+                        <tr class="text-gray-500 dark:text-gray-400">
+                            <th class="text-left py-1 pr-2 w-1/4">Column</th>
+                            <th class="text-left py-1 pr-2 w-1/3">Current</th>
+                            <th class="text-left py-1 w-1/3">Incoming</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${allCols.map(col => {
+                            const isChanged = changedCols.has(col);
+                            const current = diff.current[col] || '';
+                            const incoming = diff.incoming[col] || '';
+                            return `
+                                <tr class="${isChanged ? 'bg-blue-50 dark:bg-blue-900/20' : ''}">
+                                    <td class="py-0.5 pr-2 font-medium ${isChanged ? 'text-blue-700 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400'}">${escapeHtml(col)}</td>
+                                    <td class="py-0.5 pr-2 ${isChanged ? 'text-red-600 dark:text-red-400 line-through' : 'text-gray-600 dark:text-gray-400'}">${escapeHtml(current) || '<span class="text-gray-300 dark:text-gray-600">empty</span>'}</td>
+                                    <td class="py-0.5 ${isChanged ? 'text-green-600 dark:text-green-400 font-medium' : 'text-gray-600 dark:text-gray-400'}">${escapeHtml(incoming) || '<span class="text-gray-300 dark:text-gray-600">empty</span>'}</td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }).join('');
+
+    return `
+        <div class="max-h-64 overflow-y-auto">
+            ${showingInfo}
+            ${rows}
+        </div>
+    `;
+}
+
+// Render error samples
+function renderErrorSamples(errors, totalErrors) {
+    const showingInfo = errors.length < totalErrors ? `<div class="text-xs text-gray-500 dark:text-gray-400 mb-2">Showing ${errors.length} of ${totalErrors} errors</div>` : '';
+
+    const rows = errors.map(err => `
+        <div class="mb-2 p-2 rounded border border-red-100 dark:border-red-900 bg-red-50 dark:bg-red-900/20">
+            <div class="text-xs font-medium text-red-700 dark:text-red-400 mb-1">
+                Row ${err.lineNumber}${err.rowKey ? ` • Key: <span class="font-mono">${escapeHtml(err.rowKey)}</span>` : ''}
+            </div>
+            <ul class="text-xs text-red-600 dark:text-red-400 list-disc list-inside">
+                ${err.errors.map(e => `<li>${escapeHtml(e)}</li>`).join('')}
+            </ul>
+        </div>
+    `).join('');
+
+    return `
+        <div class="max-h-64 overflow-y-auto">
+            ${showingInfo}
+            ${rows}
+        </div>
+    `;
+}
+
+// Render new row samples
+function renderNewRowSamples(samples, totalNew) {
+    const showingInfo = samples.length < totalNew ? `<div class="text-xs text-gray-500 dark:text-gray-400 mb-2">Showing ${samples.length} of ${totalNew} new rows</div>` : '';
+
+    const rows = samples.map(sample => {
+        const cols = Object.entries(sample.values);
+        return `
+            <div class="mb-2 p-2 rounded border border-green-100 dark:border-green-900 bg-green-50 dark:bg-green-900/20">
+                <div class="text-xs font-medium text-green-700 dark:text-green-400 mb-1">
+                    Row ${sample.lineNumber}${sample.rowKey ? ` • Key: <span class="font-mono">${escapeHtml(sample.rowKey)}</span>` : ''}
+                </div>
+                <div class="text-xs text-green-600 dark:text-green-400 grid grid-cols-2 gap-x-4 gap-y-0.5">
+                    ${cols.slice(0, 6).map(([k, v]) => `<div><span class="text-green-500 dark:text-green-500">${escapeHtml(k)}:</span> ${escapeHtml(v) || '<span class="text-gray-400">empty</span>'}</div>`).join('')}
+                    ${cols.length > 6 ? `<div class="text-green-400 dark:text-green-500 italic">+${cols.length - 6} more fields</div>` : ''}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    return `
+        <div class="max-h-64 overflow-y-auto">
+            ${showingInfo}
+            ${rows}
+        </div>
+    `;
+}
+
+// Render duplicate samples
+function renderDuplicateSamples(duplicates, totalDuplicates) {
+    const rows = duplicates.map(dup => `
+        <div class="mb-2 p-2 rounded border border-amber-100 dark:border-amber-900 bg-amber-50 dark:bg-amber-900/20">
+            <div class="text-xs">
+                <span class="font-medium text-amber-700 dark:text-amber-400 font-mono">${escapeHtml(dup.rowKey)}</span>
+                <span class="text-amber-600 dark:text-amber-500"> appears on rows: ${dup.lineNumbers.join(', ')}</span>
+            </div>
+        </div>
+    `).join('');
+
+    return `
+        <div class="max-h-64 overflow-y-auto">
+            <div class="text-xs text-gray-500 dark:text-gray-400 mb-2">${totalDuplicates} duplicate keys in file (only first occurrence will be imported)</div>
+            ${rows}
+        </div>
+    `;
+}
+
+// Setup tab switching
+function setupAnalysisTabs() {
+    const tabs = document.querySelectorAll('.analysis-tab');
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const tabName = tab.dataset.tab;
+
+            // Update tab styles
+            tabs.forEach(t => {
+                if (t.dataset.tab === tabName) {
+                    t.classList.add('border-blue-500', 'text-blue-600', 'dark:text-blue-400');
+                    t.classList.remove('border-transparent', 'text-gray-500', 'dark:text-gray-400');
+                } else {
+                    t.classList.remove('border-blue-500', 'text-blue-600', 'dark:text-blue-400');
+                    t.classList.add('border-transparent', 'text-gray-500', 'dark:text-gray-400');
+                }
+            });
+
+            // Show/hide panels
+            document.querySelectorAll('.tab-panel').forEach(panel => {
+                if (panel.dataset.panel === tabName) {
+                    panel.classList.remove('hidden');
+                } else {
+                    panel.classList.add('hidden');
+                }
+            });
+        });
+    });
 }
 
 // ============================================================================

@@ -115,6 +115,57 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handlePreview analyzes a CSV file and returns what would happen on upload.
+func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
+	tableKey := chi.URLParam(r, "tableKey")
+	if tableKey == "" {
+		writeError(w, http.StatusBadRequest, "missing table key")
+		return
+	}
+
+	// Limit request size
+	r.Body = http.MaxBytesReader(w, r.Body, MaxUploadSize)
+
+	// Parse multipart form
+	if err := r.ParseMultipartForm(MaxUploadSize); err != nil {
+		writeError(w, http.StatusBadRequest, "file too large or invalid form")
+		return
+	}
+
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "no file provided")
+		return
+	}
+	defer file.Close()
+
+	// Read file data
+	data, err := io.ReadAll(file)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read file")
+		return
+	}
+
+	// Parse optional column mapping
+	var mapping map[string]int
+	if mappingJSON := r.FormValue("mapping"); mappingJSON != "" {
+		if err := json.Unmarshal([]byte(mappingJSON), &mapping); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid mapping format")
+			return
+		}
+	}
+
+	// Run analysis
+	result, err := s.service.AnalyzeUpload(r.Context(), tableKey, data, mapping)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
 // handleUploadProgress streams upload progress via Server-Sent Events.
 func (s *Server) handleUploadProgress(w http.ResponseWriter, r *http.Request) {
 	uploadID := chi.URLParam(r, "uploadID")
