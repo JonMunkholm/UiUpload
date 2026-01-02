@@ -930,44 +930,6 @@ func (s *Server) handleBulkEdit(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, result)
 }
 
-// handleGetEditHistory returns the edit history for a table.
-func (s *Server) handleGetEditHistory(w http.ResponseWriter, r *http.Request) {
-	tableKey := chi.URLParam(r, "tableKey")
-	if tableKey == "" {
-		writeError(w, http.StatusBadRequest, "missing table key")
-		return
-	}
-
-	entries, err := s.service.GetEditHistory(r.Context(), tableKey, core.DefaultHistoryLimit)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	// Render history entries as HTML
-	component := templates.EditHistoryList(tableKey, entries)
-	component.Render(r.Context(), w)
-}
-
-// handleRevertChange reverts a specific history entry.
-func (s *Server) handleRevertChange(w http.ResponseWriter, r *http.Request) {
-	tableKey := chi.URLParam(r, "tableKey")
-	entryID := chi.URLParam(r, "id")
-
-	if tableKey == "" || entryID == "" {
-		writeError(w, http.StatusBadRequest, "missing parameters")
-		return
-	}
-
-	result, err := s.service.RevertChange(r.Context(), tableKey, entryID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	writeJSON(w, result)
-}
-
 // handleListTemplates returns all import templates for a table.
 func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
 	tableKey := chi.URLParam(r, "tableKey")

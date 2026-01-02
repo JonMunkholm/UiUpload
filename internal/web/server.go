@@ -97,10 +97,6 @@ func (s *Server) setupRoutes() {
 		// Bulk edit
 		r.Post("/bulk-edit/{tableKey}", s.handleBulkEdit)
 
-		// Edit history
-		r.Get("/edit-history/{tableKey}", s.handleGetEditHistory)
-		r.Post("/revert/{tableKey}/{id}", s.handleRevertChange)
-
 		// Audit log
 		r.Get("/audit-log/{id}", s.handleAuditLogEntry)
 
