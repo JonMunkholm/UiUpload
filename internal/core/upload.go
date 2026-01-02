@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -173,8 +174,11 @@ func (s *Service) processUploadDir(ctx context.Context, upload *activeUpload, de
 		// Move to Uploaded directory on success
 		if result.Error == "" {
 			uploadedDir := filepath.Join(dir, "Uploaded")
-			_ = os.MkdirAll(uploadedDir, 0755)
-			_ = os.Rename(filePath, filepath.Join(uploadedDir, fileName))
+			if err := os.MkdirAll(uploadedDir, 0755); err != nil {
+				log.Printf("failed to create uploaded directory: %v", err)
+			} else if err := os.Rename(filePath, filepath.Join(uploadedDir, fileName)); err != nil {
+				log.Printf("failed to move file to uploaded directory: %v", err)
+			}
 		}
 	}
 
@@ -378,25 +382,31 @@ func (s *Service) processRecords(ctx context.Context, upload *activeUpload, def 
 		updateParams.RowsSkipped.Valid = true
 		updateParams.DurationMs.Int32 = int32(time.Since(startTime).Milliseconds())
 		updateParams.DurationMs.Valid = true
-		_ = db.New(s.pool).UpdateUploadCounts(ctx, updateParams)
+		if err := db.New(s.pool).UpdateUploadCounts(ctx, updateParams); err != nil {
+			log.Printf("failed to update upload counts: %v", err)
+		}
 
 		// Store CSV headers for failed rows export
 		if len(csvHeaderRow) > 0 {
-			_ = db.New(s.pool).UpdateUploadHeaders(ctx, db.UpdateUploadHeadersParams{
+			if err := db.New(s.pool).UpdateUploadHeaders(ctx, db.UpdateUploadHeadersParams{
 				ID:         uploadID,
 				CsvHeaders: csvHeaderRow,
-			})
+			}); err != nil {
+				log.Printf("failed to update upload headers: %v", err)
+			}
 		}
 
 		// Persist failed rows for later download
 		if len(failedRows) > 0 {
 			for _, fr := range failedRows {
-				_ = db.New(s.pool).InsertFailedRow(ctx, db.InsertFailedRowParams{
+				if err := db.New(s.pool).InsertFailedRow(ctx, db.InsertFailedRowParams{
 					UploadID:   uploadID,
 					LineNumber: int32(fr.LineNumber),
 					Reason:     fr.Reason,
 					RowData:    fr.Data,
-				})
+				}); err != nil {
+					log.Printf("failed to insert failed row: %v", err)
+				}
 			}
 		}
 	}
@@ -552,26 +562,4 @@ func isEmptyRow(row []string) bool {
 		}
 	}
 	return true
-}
-
-// recordUpload records an upload to the csv_uploads table.
-func (s *Service) recordUpload(ctx context.Context, tableKey, fileName string, inserted, skipped int, duration time.Duration) {
-	params := db.InsertCsvUploadParams{
-		Name:   tableKey,
-		Action: "upload",
-	}
-
-	// Set nullable fields
-	if fileName != "" {
-		params.FileName.String = fileName
-		params.FileName.Valid = true
-	}
-	params.RowsInserted.Int32 = int32(inserted)
-	params.RowsInserted.Valid = true
-	params.RowsSkipped.Int32 = int32(skipped)
-	params.RowsSkipped.Valid = true
-	params.DurationMs.Int32 = int32(duration.Milliseconds())
-	params.DurationMs.Valid = true
-
-	_ = db.New(s.pool).InsertCsvUpload(ctx, params)
 }

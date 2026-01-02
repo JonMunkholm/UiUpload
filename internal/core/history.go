@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -95,7 +96,9 @@ func (s *Service) GetEditHistory(ctx context.Context, tableKey string, limit int
 			entry.NewValue = row.NewValue.String
 		}
 		if row.RowData != nil {
-			json.Unmarshal(row.RowData, &entry.RowData)
+			if err := json.Unmarshal(row.RowData, &entry.RowData); err != nil {
+				log.Printf("failed to unmarshal row data for history entry %d: %v", row.ID, err)
+			}
 		}
 
 		entries = append(entries, entry)
@@ -129,7 +132,9 @@ func (s *Service) GetEditHistoryEntry(ctx context.Context, id int32) (*EditHisto
 		entry.NewValue = row.NewValue.String
 	}
 	if row.RowData != nil {
-		json.Unmarshal(row.RowData, &entry.RowData)
+		if err := json.Unmarshal(row.RowData, &entry.RowData); err != nil {
+			log.Printf("failed to unmarshal row data for history entry %d: %v", row.ID, err)
+		}
 	}
 
 	return entry, nil
@@ -461,7 +466,9 @@ func (s *Service) recordRestore(ctx context.Context, tableKey, rowKey string) {
 		RowData:    nil,
 	}
 
-	db.New(s.pool).InsertEditHistory(ctx, params)
+	if _, err := db.New(s.pool).InsertEditHistory(ctx, params); err != nil {
+		log.Printf("failed to record restore action: %v", err)
+	}
 }
 
 // CleanupOldHistory removes history entries older than maxAge.
