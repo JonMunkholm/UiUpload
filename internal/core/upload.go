@@ -371,6 +371,21 @@ func (s *Service) processRecords(ctx context.Context, upload *activeUpload, def 
 		return result
 	}
 
+	// Log audit entry for successful upload
+	var uploadIDStr string
+	if uploadID.Valid {
+		uploadIDStr = pgUUIDToString(uploadID)
+	}
+	s.LogAudit(ctx, AuditLogParams{
+		Action:       ActionUpload,
+		TableKey:     upload.TableKey,
+		UploadID:     uploadIDStr,
+		RowsAffected: result.Inserted,
+		IPAddress:    GetIPAddressFromContext(ctx),
+		UserAgent:    GetUserAgentFromContext(ctx),
+		Reason:       fmt.Sprintf("Uploaded %s", fileName),
+	})
+
 	// Update upload record with final counts and headers
 	if uploadID.Valid {
 		updateParams := db.UpdateUploadCountsParams{

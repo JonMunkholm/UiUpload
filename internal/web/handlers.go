@@ -102,8 +102,9 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Start upload
-	uploadID, err := s.service.StartUpload(r.Context(), tableKey, header.Filename, data, mapping)
+	// Start upload with request metadata for audit logging
+	ctx := WithRequestMetadata(r.Context(), r)
+	uploadID, err := s.service.StartUpload(ctx, tableKey, header.Filename, data, mapping)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -253,7 +254,8 @@ func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.service.Reset(r.Context(), tableKey); err != nil {
+	ctx := WithRequestMetadata(r.Context(), r)
+	if err := s.service.Reset(ctx, tableKey); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -264,7 +266,8 @@ func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {
 
 // handleResetAll deletes all data from all tables.
 func (s *Server) handleResetAll(w http.ResponseWriter, r *http.Request) {
-	if err := s.service.ResetAll(r.Context()); err != nil {
+	ctx := WithRequestMetadata(r.Context(), r)
+	if err := s.service.ResetAll(ctx); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -281,7 +284,8 @@ func (s *Server) handleRollbackUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.service.RollbackUpload(r.Context(), uploadID)
+	ctx := WithRequestMetadata(r.Context(), r)
+	result, err := s.service.RollbackUpload(ctx, uploadID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, result.Error)
 		return
@@ -912,7 +916,8 @@ func (s *Server) handleBulkEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.service.BulkEditRows(r.Context(), tableKey, core.BulkEditRequest{
+	ctx := WithRequestMetadata(r.Context(), r)
+	result, err := s.service.BulkEditRows(ctx, tableKey, core.BulkEditRequest{
 		Keys:   req.Keys,
 		Column: req.Column,
 		Value:  req.Value,
@@ -1053,7 +1058,8 @@ func (s *Server) handleCreateTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	template, err := s.service.CreateTemplate(r.Context(), req.TableKey, req.Name, req.ColumnMapping, req.CSVHeaders)
+	ctx := WithRequestMetadata(r.Context(), r)
+	template, err := s.service.CreateTemplate(ctx, req.TableKey, req.Name, req.ColumnMapping, req.CSVHeaders)
 	if err != nil {
 		// Check for duplicate name error
 		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "unique") {
@@ -1093,7 +1099,8 @@ func (s *Server) handleUpdateTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	template, err := s.service.UpdateTemplate(r.Context(), id, req.Name, req.ColumnMapping, req.CSVHeaders)
+	ctx := WithRequestMetadata(r.Context(), r)
+	template, err := s.service.UpdateTemplate(ctx, id, req.Name, req.ColumnMapping, req.CSVHeaders)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1111,7 +1118,8 @@ func (s *Server) handleDeleteTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.service.DeleteTemplate(r.Context(), id); err != nil {
+	ctx := WithRequestMetadata(r.Context(), r)
+	if err := s.service.DeleteTemplate(ctx, id); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

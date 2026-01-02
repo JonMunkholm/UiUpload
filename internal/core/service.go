@@ -231,21 +231,49 @@ func (s *Service) Reset(ctx context.Context, tableKey string) error {
 		return fmt.Errorf("unknown table: %s", tableKey)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, ResetTimeout)
+	// Get row count before reset for audit logging
+	rowCount, _ := countTable(ctx, s.pool, tableKey)
+
+	resetCtx, cancel := context.WithTimeout(ctx, ResetTimeout)
 	defer cancel()
 
-	return def.Reset(ctx, s.pool)
+	if err := def.Reset(resetCtx, s.pool); err != nil {
+		return err
+	}
+
+	// Log audit entry for table reset
+	s.LogAudit(ctx, AuditLogParams{
+		Action:       ActionTableReset,
+		TableKey:     tableKey,
+		RowsAffected: int(rowCount),
+		IPAddress:    GetIPAddressFromContext(ctx),
+		UserAgent:    GetUserAgentFromContext(ctx),
+	})
+
+	return nil
 }
 
 // ResetAll deletes all data from all registered tables.
 func (s *Service) ResetAll(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, ResetTimeout)
+	resetCtx, cancel := context.WithTimeout(ctx, ResetTimeout)
 	defer cancel()
 
 	for _, def := range All() {
-		if err := def.Reset(ctx, s.pool); err != nil {
+		// Get row count before reset for audit logging
+		rowCount, _ := countTable(ctx, s.pool, def.Info.Key)
+
+		if err := def.Reset(resetCtx, s.pool); err != nil {
 			return fmt.Errorf("reset %s: %w", def.Info.Key, err)
 		}
+
+		// Log audit entry for each table reset
+		s.LogAudit(ctx, AuditLogParams{
+			Action:       ActionTableReset,
+			TableKey:     def.Info.Key,
+			RowsAffected: int(rowCount),
+			IPAddress:    GetIPAddressFromContext(ctx),
+			UserAgent:    GetUserAgentFromContext(ctx),
+		})
 	}
 
 	return nil
@@ -499,6 +527,17 @@ func (s *Service) RollbackUpload(ctx context.Context, uploadID string) (Rollback
 
 	result.RowsDeleted = rowsDeleted
 	result.Success = true
+
+	// Log audit entry for rollback
+	s.LogAudit(ctx, AuditLogParams{
+		Action:       ActionUploadRollback,
+		TableKey:     result.TableKey,
+		UploadID:     uploadID,
+		RowsAffected: int(rowsDeleted),
+		IPAddress:    GetIPAddressFromContext(ctx),
+		UserAgent:    GetUserAgentFromContext(ctx),
+	})
+
 	return result, nil
 }
 
@@ -1334,6 +1373,20 @@ func (s *Service) BulkEditRows(ctx context.Context, tableKey string, req BulkEdi
 		// Record in history
 		s.RecordCellEdit(ctx, tableKey, key, req.Column, oldValue, req.Value)
 		result.Updated++
+	}
+
+	// Log audit entry for bulk edit (only if any rows were actually updated)
+	if result.Updated > 0 {
+		s.LogAudit(ctx, AuditLogParams{
+			Action:       ActionBulkEdit,
+			TableKey:     tableKey,
+			ColumnName:   req.Column,
+			NewValue:     req.Value,
+			RowsAffected: result.Updated,
+			IPAddress:    GetIPAddressFromContext(ctx),
+			UserAgent:    GetUserAgentFromContext(ctx),
+			Reason:       fmt.Sprintf("Bulk edited %d rows", result.Updated),
+		})
 	}
 
 	return result, nil

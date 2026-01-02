@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"net"
+	"net/netip"
 	"time"
 
 	db "github.com/JonMunkholm/TUI/internal/database"
@@ -22,6 +24,7 @@ const (
 	ActionRowRestore     AuditAction = "row_restore"
 	ActionTableReset     AuditAction = "table_reset"
 	ActionTemplateCreate AuditAction = "template_create"
+	ActionTemplateUpdate AuditAction = "template_update"
 	ActionTemplateDelete AuditAction = "template_delete"
 )
 
@@ -87,7 +90,7 @@ func determineSeverity(action AuditAction) AuditSeverity {
 		return SeverityHigh
 	case ActionTableReset:
 		return SeverityCritical
-	case ActionTemplateCreate, ActionTemplateDelete:
+	case ActionTemplateCreate, ActionTemplateUpdate, ActionTemplateDelete:
 		return SeverityLow
 	default:
 		return SeverityMedium
@@ -128,10 +131,15 @@ func (s *Service) LogAudit(ctx context.Context, params AuditLogParams) (*AuditEn
 		Reason:    toPgText(params.Reason),
 	}
 
-	// Handle IP address
+	// Handle IP address - strip port if present and parse
 	if params.IPAddress != "" {
-		// Parse and set IP address - for now, just skip if invalid
-		// We'll leave IpAddress as nil if not provided
+		host := params.IPAddress
+		if h, _, err := net.SplitHostPort(params.IPAddress); err == nil {
+			host = h
+		}
+		if addr, err := netip.ParseAddr(host); err == nil {
+			insertParams.IpAddress = &addr
+		}
 	}
 
 	row, err := db.New(s.pool).InsertAuditLog(ctx, insertParams)
@@ -327,6 +335,12 @@ func uuidToString(u pgtype.UUID) string {
 		return ""
 	}
 	return uuid.UUID(u.Bytes).String()
+}
+
+// pgUUIDToString converts a pgtype.UUID to its string representation.
+// Public alias for use by other files in the core package.
+func pgUUIDToString(u pgtype.UUID) string {
+	return uuidToString(u)
 }
 
 func dbAuditLogToEntry(row db.AuditLog) *AuditEntry {

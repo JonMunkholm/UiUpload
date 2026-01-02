@@ -43,6 +43,15 @@ func (s *Service) CreateTemplate(ctx context.Context, tableKey, name string, map
 		return nil, fmt.Errorf("create template: %w", err)
 	}
 
+	// Log audit entry for template creation
+	s.LogAudit(ctx, AuditLogParams{
+		Action:    ActionTemplateCreate,
+		TableKey:  tableKey,
+		IPAddress: GetIPAddressFromContext(ctx),
+		UserAgent: GetUserAgentFromContext(ctx),
+		Reason:    fmt.Sprintf("Created template: %s", name),
+	})
+
 	return dbTemplateToTemplate(result)
 }
 
@@ -114,6 +123,15 @@ func (s *Service) UpdateTemplate(ctx context.Context, id, name string, mapping m
 		return nil, fmt.Errorf("update template: %w", err)
 	}
 
+	// Log audit entry for template update
+	s.LogAudit(ctx, AuditLogParams{
+		Action:    ActionTemplateUpdate,
+		TableKey:  result.TableKey,
+		IPAddress: GetIPAddressFromContext(ctx),
+		UserAgent: GetUserAgentFromContext(ctx),
+		Reason:    fmt.Sprintf("Updated template: %s", name),
+	})
+
 	return dbTemplateToTemplate(result)
 }
 
@@ -125,7 +143,28 @@ func (s *Service) DeleteTemplate(ctx context.Context, id string) error {
 	}
 
 	queries := db.New(s.pool)
-	return queries.DeleteImportTemplate(ctx, pgtype.UUID{Bytes: uid, Valid: true})
+	pgUUID := pgtype.UUID{Bytes: uid, Valid: true}
+
+	// Get template info before deletion for audit logging
+	template, err := queries.GetImportTemplate(ctx, pgUUID)
+	if err != nil {
+		return fmt.Errorf("get template: %w", err)
+	}
+
+	if err := queries.DeleteImportTemplate(ctx, pgUUID); err != nil {
+		return err
+	}
+
+	// Log audit entry for template deletion
+	s.LogAudit(ctx, AuditLogParams{
+		Action:    ActionTemplateDelete,
+		TableKey:  template.TableKey,
+		IPAddress: GetIPAddressFromContext(ctx),
+		UserAgent: GetUserAgentFromContext(ctx),
+		Reason:    fmt.Sprintf("Deleted template: %s", template.Name),
+	})
+
+	return nil
 }
 
 // MatchTemplates finds templates that match the given CSV headers.
