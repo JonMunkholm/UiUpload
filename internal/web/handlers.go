@@ -1109,6 +1109,7 @@ func (s *Server) handleAuditLog(w http.ResponseWriter, r *http.Request) {
 	coreFilter := core.AuditLogFilter{
 		TableKey: filter.TableKey,
 		Action:   core.AuditAction(filter.Action),
+		Severity: filter.Severity,
 		Limit:    pageSize,
 		Offset:   (page - 1) * pageSize,
 	}
@@ -1131,17 +1132,6 @@ func (s *Server) handleAuditLog(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
-	}
-
-	// Filter by severity in-memory (no SQL query for severity)
-	if filter.Severity != "" {
-		filtered := make([]core.AuditEntry, 0)
-		for _, e := range entries {
-			if string(e.Severity) == filter.Severity {
-				filtered = append(filtered, e)
-			}
-		}
-		entries = filtered
 	}
 
 	// Get total count

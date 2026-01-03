@@ -154,6 +154,7 @@ func (s *Service) LogAudit(ctx context.Context, params AuditLogParams) (*AuditEn
 type AuditLogFilter struct {
 	TableKey  string
 	Action    AuditAction
+	Severity  string
 	StartTime time.Time
 	EndTime   time.Time
 	Limit     int
@@ -180,9 +181,22 @@ func (s *Service) GetAuditLog(ctx context.Context, filter AuditLogFilter) ([]Aud
 	var rows []db.AuditLog
 	var err error
 
+	hasAction := filter.Action != ""
+	hasTable := filter.TableKey != ""
+	hasSeverity := filter.Severity != ""
+
 	switch {
-	case filter.Action != "" && filter.TableKey != "":
-		// Both action and table filter
+	case hasAction && hasTable && hasSeverity:
+		rows, err = db.New(s.pool).GetAuditLogByActionTableAndSeverity(ctx, db.GetAuditLogByActionTableAndSeverityParams{
+			Action:      string(filter.Action),
+			TableKey:    filter.TableKey,
+			Severity:    filter.Severity,
+			CreatedAt:   startTime,
+			CreatedAt_2: endTime,
+			Limit:       int32(filter.Limit),
+			Offset:      int32(filter.Offset),
+		})
+	case hasAction && hasTable:
 		rows, err = db.New(s.pool).GetAuditLogByActionAndTable(ctx, db.GetAuditLogByActionAndTableParams{
 			Action:      string(filter.Action),
 			TableKey:    filter.TableKey,
@@ -191,8 +205,25 @@ func (s *Service) GetAuditLog(ctx context.Context, filter AuditLogFilter) ([]Aud
 			Limit:       int32(filter.Limit),
 			Offset:      int32(filter.Offset),
 		})
-	case filter.Action != "":
-		// Action filter only
+	case hasAction && hasSeverity:
+		rows, err = db.New(s.pool).GetAuditLogByActionAndSeverity(ctx, db.GetAuditLogByActionAndSeverityParams{
+			Action:      string(filter.Action),
+			Severity:    filter.Severity,
+			CreatedAt:   startTime,
+			CreatedAt_2: endTime,
+			Limit:       int32(filter.Limit),
+			Offset:      int32(filter.Offset),
+		})
+	case hasTable && hasSeverity:
+		rows, err = db.New(s.pool).GetAuditLogByTableAndSeverity(ctx, db.GetAuditLogByTableAndSeverityParams{
+			TableKey:    filter.TableKey,
+			Severity:    filter.Severity,
+			CreatedAt:   startTime,
+			CreatedAt_2: endTime,
+			Limit:       int32(filter.Limit),
+			Offset:      int32(filter.Offset),
+		})
+	case hasAction:
 		rows, err = db.New(s.pool).GetAuditLogByAction(ctx, db.GetAuditLogByActionParams{
 			Action:      string(filter.Action),
 			CreatedAt:   startTime,
@@ -200,8 +231,7 @@ func (s *Service) GetAuditLog(ctx context.Context, filter AuditLogFilter) ([]Aud
 			Limit:       int32(filter.Limit),
 			Offset:      int32(filter.Offset),
 		})
-	case filter.TableKey != "":
-		// Table filter only
+	case hasTable:
 		rows, err = db.New(s.pool).GetAuditLogByTable(ctx, db.GetAuditLogByTableParams{
 			TableKey:    filter.TableKey,
 			CreatedAt:   startTime,
@@ -209,8 +239,15 @@ func (s *Service) GetAuditLog(ctx context.Context, filter AuditLogFilter) ([]Aud
 			Limit:       int32(filter.Limit),
 			Offset:      int32(filter.Offset),
 		})
+	case hasSeverity:
+		rows, err = db.New(s.pool).GetAuditLogBySeverity(ctx, db.GetAuditLogBySeverityParams{
+			Severity:    filter.Severity,
+			CreatedAt:   startTime,
+			CreatedAt_2: endTime,
+			Limit:       int32(filter.Limit),
+			Offset:      int32(filter.Offset),
+		})
 	default:
-		// No filter
 		rows, err = db.New(s.pool).GetAuditLogAll(ctx, db.GetAuditLogAllParams{
 			CreatedAt:   startTime,
 			CreatedAt_2: endTime,
@@ -253,23 +290,55 @@ func (s *Service) CountAuditLog(ctx context.Context, filter AuditLogFilter) (int
 		endTime = pgtype.Timestamptz{Time: time.Now().Add(24 * time.Hour), Valid: true}
 	}
 
+	hasAction := filter.Action != ""
+	hasTable := filter.TableKey != ""
+	hasSeverity := filter.Severity != ""
+
 	switch {
-	case filter.Action != "" && filter.TableKey != "":
+	case hasAction && hasTable && hasSeverity:
+		return db.New(s.pool).CountAuditLogByActionTableAndSeverity(ctx, db.CountAuditLogByActionTableAndSeverityParams{
+			Action:      string(filter.Action),
+			TableKey:    filter.TableKey,
+			Severity:    filter.Severity,
+			CreatedAt:   startTime,
+			CreatedAt_2: endTime,
+		})
+	case hasAction && hasTable:
 		return db.New(s.pool).CountAuditLogByActionAndTable(ctx, db.CountAuditLogByActionAndTableParams{
 			Action:      string(filter.Action),
 			TableKey:    filter.TableKey,
 			CreatedAt:   startTime,
 			CreatedAt_2: endTime,
 		})
-	case filter.Action != "":
-		return db.New(s.pool).CountAuditLogByAction(ctx, db.CountAuditLogByActionParams{
-			Action:    string(filter.Action),
-			CreatedAt: startTime,
+	case hasAction && hasSeverity:
+		return db.New(s.pool).CountAuditLogByActionAndSeverity(ctx, db.CountAuditLogByActionAndSeverityParams{
+			Action:      string(filter.Action),
+			Severity:    filter.Severity,
+			CreatedAt:   startTime,
 			CreatedAt_2: endTime,
 		})
-	case filter.TableKey != "":
+	case hasTable && hasSeverity:
+		return db.New(s.pool).CountAuditLogByTableAndSeverity(ctx, db.CountAuditLogByTableAndSeverityParams{
+			TableKey:    filter.TableKey,
+			Severity:    filter.Severity,
+			CreatedAt:   startTime,
+			CreatedAt_2: endTime,
+		})
+	case hasAction:
+		return db.New(s.pool).CountAuditLogByAction(ctx, db.CountAuditLogByActionParams{
+			Action:      string(filter.Action),
+			CreatedAt:   startTime,
+			CreatedAt_2: endTime,
+		})
+	case hasTable:
 		return db.New(s.pool).CountAuditLogByTable(ctx, db.CountAuditLogByTableParams{
 			TableKey:    filter.TableKey,
+			CreatedAt:   startTime,
+			CreatedAt_2: endTime,
+		})
+	case hasSeverity:
+		return db.New(s.pool).CountAuditLogBySeverity(ctx, db.CountAuditLogBySeverityParams{
+			Severity:    filter.Severity,
 			CreatedAt:   startTime,
 			CreatedAt_2: endTime,
 		})

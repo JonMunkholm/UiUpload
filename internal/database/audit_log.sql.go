@@ -104,6 +104,33 @@ func (q *Queries) CountAuditLogByAction(ctx context.Context, arg CountAuditLogBy
 	return count, err
 }
 
+const countAuditLogByActionAndSeverity = `-- name: CountAuditLogByActionAndSeverity :one
+SELECT COUNT(*) FROM audit_log
+WHERE action = $1
+  AND severity = $2
+  AND created_at >= $3
+  AND created_at <= $4
+`
+
+type CountAuditLogByActionAndSeverityParams struct {
+	Action      string             `json:"action"`
+	Severity    string             `json:"severity"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	CreatedAt_2 pgtype.Timestamptz `json:"created_at_2"`
+}
+
+func (q *Queries) CountAuditLogByActionAndSeverity(ctx context.Context, arg CountAuditLogByActionAndSeverityParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAuditLogByActionAndSeverity,
+		arg.Action,
+		arg.Severity,
+		arg.CreatedAt,
+		arg.CreatedAt_2,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countAuditLogByActionAndTable = `-- name: CountAuditLogByActionAndTable :one
 SELECT COUNT(*) FROM audit_log
 WHERE action = $1
@@ -131,6 +158,56 @@ func (q *Queries) CountAuditLogByActionAndTable(ctx context.Context, arg CountAu
 	return count, err
 }
 
+const countAuditLogByActionTableAndSeverity = `-- name: CountAuditLogByActionTableAndSeverity :one
+SELECT COUNT(*) FROM audit_log
+WHERE action = $1
+  AND table_key = $2
+  AND severity = $3
+  AND created_at >= $4
+  AND created_at <= $5
+`
+
+type CountAuditLogByActionTableAndSeverityParams struct {
+	Action      string             `json:"action"`
+	TableKey    string             `json:"table_key"`
+	Severity    string             `json:"severity"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	CreatedAt_2 pgtype.Timestamptz `json:"created_at_2"`
+}
+
+func (q *Queries) CountAuditLogByActionTableAndSeverity(ctx context.Context, arg CountAuditLogByActionTableAndSeverityParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAuditLogByActionTableAndSeverity,
+		arg.Action,
+		arg.TableKey,
+		arg.Severity,
+		arg.CreatedAt,
+		arg.CreatedAt_2,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countAuditLogBySeverity = `-- name: CountAuditLogBySeverity :one
+SELECT COUNT(*) FROM audit_log
+WHERE severity = $1
+  AND created_at >= $2
+  AND created_at <= $3
+`
+
+type CountAuditLogBySeverityParams struct {
+	Severity    string             `json:"severity"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	CreatedAt_2 pgtype.Timestamptz `json:"created_at_2"`
+}
+
+func (q *Queries) CountAuditLogBySeverity(ctx context.Context, arg CountAuditLogBySeverityParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAuditLogBySeverity, arg.Severity, arg.CreatedAt, arg.CreatedAt_2)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countAuditLogByTable = `-- name: CountAuditLogByTable :one
 SELECT COUNT(*) FROM audit_log
 WHERE table_key = $1
@@ -146,6 +223,33 @@ type CountAuditLogByTableParams struct {
 
 func (q *Queries) CountAuditLogByTable(ctx context.Context, arg CountAuditLogByTableParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countAuditLogByTable, arg.TableKey, arg.CreatedAt, arg.CreatedAt_2)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countAuditLogByTableAndSeverity = `-- name: CountAuditLogByTableAndSeverity :one
+SELECT COUNT(*) FROM audit_log
+WHERE table_key = $1
+  AND severity = $2
+  AND created_at >= $3
+  AND created_at <= $4
+`
+
+type CountAuditLogByTableAndSeverityParams struct {
+	TableKey    string             `json:"table_key"`
+	Severity    string             `json:"severity"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	CreatedAt_2 pgtype.Timestamptz `json:"created_at_2"`
+}
+
+func (q *Queries) CountAuditLogByTableAndSeverity(ctx context.Context, arg CountAuditLogByTableAndSeverityParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAuditLogByTableAndSeverity,
+		arg.TableKey,
+		arg.Severity,
+		arg.CreatedAt,
+		arg.CreatedAt_2,
+	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -403,6 +507,73 @@ func (q *Queries) GetAuditLogByAction(ctx context.Context, arg GetAuditLogByActi
 	return items, nil
 }
 
+const getAuditLogByActionAndSeverity = `-- name: GetAuditLogByActionAndSeverity :many
+SELECT id, action, severity, table_key, user_id, user_email, user_name, ip_address, user_agent, row_key, column_name, old_value, new_value, row_data, rows_affected, upload_id, batch_id, related_audit_id, reason, created_at FROM audit_log
+WHERE action = $1
+  AND severity = $2
+  AND created_at >= $3
+  AND created_at <= $4
+ORDER BY created_at DESC
+LIMIT $5 OFFSET $6
+`
+
+type GetAuditLogByActionAndSeverityParams struct {
+	Action      string             `json:"action"`
+	Severity    string             `json:"severity"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	CreatedAt_2 pgtype.Timestamptz `json:"created_at_2"`
+	Limit       int32              `json:"limit"`
+	Offset      int32              `json:"offset"`
+}
+
+func (q *Queries) GetAuditLogByActionAndSeverity(ctx context.Context, arg GetAuditLogByActionAndSeverityParams) ([]AuditLog, error) {
+	rows, err := q.db.Query(ctx, getAuditLogByActionAndSeverity,
+		arg.Action,
+		arg.Severity,
+		arg.CreatedAt,
+		arg.CreatedAt_2,
+		arg.Limit,
+		arg.Offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuditLog{}
+	for rows.Next() {
+		var i AuditLog
+		if err := rows.Scan(
+			&i.ID,
+			&i.Action,
+			&i.Severity,
+			&i.TableKey,
+			&i.UserID,
+			&i.UserEmail,
+			&i.UserName,
+			&i.IpAddress,
+			&i.UserAgent,
+			&i.RowKey,
+			&i.ColumnName,
+			&i.OldValue,
+			&i.NewValue,
+			&i.RowData,
+			&i.RowsAffected,
+			&i.UploadID,
+			&i.BatchID,
+			&i.RelatedAuditID,
+			&i.Reason,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getAuditLogByActionAndTable = `-- name: GetAuditLogByActionAndTable :many
 SELECT id, action, severity, table_key, user_id, user_email, user_name, ip_address, user_agent, row_key, column_name, old_value, new_value, row_data, rows_affected, upload_id, batch_id, related_audit_id, reason, created_at FROM audit_log
 WHERE action = $1
@@ -426,6 +597,76 @@ func (q *Queries) GetAuditLogByActionAndTable(ctx context.Context, arg GetAuditL
 	rows, err := q.db.Query(ctx, getAuditLogByActionAndTable,
 		arg.Action,
 		arg.TableKey,
+		arg.CreatedAt,
+		arg.CreatedAt_2,
+		arg.Limit,
+		arg.Offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuditLog{}
+	for rows.Next() {
+		var i AuditLog
+		if err := rows.Scan(
+			&i.ID,
+			&i.Action,
+			&i.Severity,
+			&i.TableKey,
+			&i.UserID,
+			&i.UserEmail,
+			&i.UserName,
+			&i.IpAddress,
+			&i.UserAgent,
+			&i.RowKey,
+			&i.ColumnName,
+			&i.OldValue,
+			&i.NewValue,
+			&i.RowData,
+			&i.RowsAffected,
+			&i.UploadID,
+			&i.BatchID,
+			&i.RelatedAuditID,
+			&i.Reason,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getAuditLogByActionTableAndSeverity = `-- name: GetAuditLogByActionTableAndSeverity :many
+SELECT id, action, severity, table_key, user_id, user_email, user_name, ip_address, user_agent, row_key, column_name, old_value, new_value, row_data, rows_affected, upload_id, batch_id, related_audit_id, reason, created_at FROM audit_log
+WHERE action = $1
+  AND table_key = $2
+  AND severity = $3
+  AND created_at >= $4
+  AND created_at <= $5
+ORDER BY created_at DESC
+LIMIT $6 OFFSET $7
+`
+
+type GetAuditLogByActionTableAndSeverityParams struct {
+	Action      string             `json:"action"`
+	TableKey    string             `json:"table_key"`
+	Severity    string             `json:"severity"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	CreatedAt_2 pgtype.Timestamptz `json:"created_at_2"`
+	Limit       int32              `json:"limit"`
+	Offset      int32              `json:"offset"`
+}
+
+func (q *Queries) GetAuditLogByActionTableAndSeverity(ctx context.Context, arg GetAuditLogByActionTableAndSeverityParams) ([]AuditLog, error) {
+	rows, err := q.db.Query(ctx, getAuditLogByActionTableAndSeverity,
+		arg.Action,
+		arg.TableKey,
+		arg.Severity,
 		arg.CreatedAt,
 		arg.CreatedAt_2,
 		arg.Limit,
@@ -502,6 +743,72 @@ func (q *Queries) GetAuditLogByID(ctx context.Context, id pgtype.UUID) (AuditLog
 	return i, err
 }
 
+const getAuditLogBySeverity = `-- name: GetAuditLogBySeverity :many
+
+SELECT id, action, severity, table_key, user_id, user_email, user_name, ip_address, user_agent, row_key, column_name, old_value, new_value, row_data, rows_affected, upload_id, batch_id, related_audit_id, reason, created_at FROM audit_log
+WHERE severity = $1
+  AND created_at >= $2
+  AND created_at <= $3
+ORDER BY created_at DESC
+LIMIT $4 OFFSET $5
+`
+
+type GetAuditLogBySeverityParams struct {
+	Severity    string             `json:"severity"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	CreatedAt_2 pgtype.Timestamptz `json:"created_at_2"`
+	Limit       int32              `json:"limit"`
+	Offset      int32              `json:"offset"`
+}
+
+// Severity-filtered queries
+func (q *Queries) GetAuditLogBySeverity(ctx context.Context, arg GetAuditLogBySeverityParams) ([]AuditLog, error) {
+	rows, err := q.db.Query(ctx, getAuditLogBySeverity,
+		arg.Severity,
+		arg.CreatedAt,
+		arg.CreatedAt_2,
+		arg.Limit,
+		arg.Offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuditLog{}
+	for rows.Next() {
+		var i AuditLog
+		if err := rows.Scan(
+			&i.ID,
+			&i.Action,
+			&i.Severity,
+			&i.TableKey,
+			&i.UserID,
+			&i.UserEmail,
+			&i.UserName,
+			&i.IpAddress,
+			&i.UserAgent,
+			&i.RowKey,
+			&i.ColumnName,
+			&i.OldValue,
+			&i.NewValue,
+			&i.RowData,
+			&i.RowsAffected,
+			&i.UploadID,
+			&i.BatchID,
+			&i.RelatedAuditID,
+			&i.Reason,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getAuditLogByTable = `-- name: GetAuditLogByTable :many
 SELECT id, action, severity, table_key, user_id, user_email, user_name, ip_address, user_agent, row_key, column_name, old_value, new_value, row_data, rows_affected, upload_id, batch_id, related_audit_id, reason, created_at FROM audit_log
 WHERE table_key = $1
@@ -522,6 +829,73 @@ type GetAuditLogByTableParams struct {
 func (q *Queries) GetAuditLogByTable(ctx context.Context, arg GetAuditLogByTableParams) ([]AuditLog, error) {
 	rows, err := q.db.Query(ctx, getAuditLogByTable,
 		arg.TableKey,
+		arg.CreatedAt,
+		arg.CreatedAt_2,
+		arg.Limit,
+		arg.Offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AuditLog{}
+	for rows.Next() {
+		var i AuditLog
+		if err := rows.Scan(
+			&i.ID,
+			&i.Action,
+			&i.Severity,
+			&i.TableKey,
+			&i.UserID,
+			&i.UserEmail,
+			&i.UserName,
+			&i.IpAddress,
+			&i.UserAgent,
+			&i.RowKey,
+			&i.ColumnName,
+			&i.OldValue,
+			&i.NewValue,
+			&i.RowData,
+			&i.RowsAffected,
+			&i.UploadID,
+			&i.BatchID,
+			&i.RelatedAuditID,
+			&i.Reason,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getAuditLogByTableAndSeverity = `-- name: GetAuditLogByTableAndSeverity :many
+SELECT id, action, severity, table_key, user_id, user_email, user_name, ip_address, user_agent, row_key, column_name, old_value, new_value, row_data, rows_affected, upload_id, batch_id, related_audit_id, reason, created_at FROM audit_log
+WHERE table_key = $1
+  AND severity = $2
+  AND created_at >= $3
+  AND created_at <= $4
+ORDER BY created_at DESC
+LIMIT $5 OFFSET $6
+`
+
+type GetAuditLogByTableAndSeverityParams struct {
+	TableKey    string             `json:"table_key"`
+	Severity    string             `json:"severity"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	CreatedAt_2 pgtype.Timestamptz `json:"created_at_2"`
+	Limit       int32              `json:"limit"`
+	Offset      int32              `json:"offset"`
+}
+
+func (q *Queries) GetAuditLogByTableAndSeverity(ctx context.Context, arg GetAuditLogByTableAndSeverityParams) ([]AuditLog, error) {
+	rows, err := q.db.Query(ctx, getAuditLogByTableAndSeverity,
+		arg.TableKey,
+		arg.Severity,
 		arg.CreatedAt,
 		arg.CreatedAt_2,
 		arg.Limit,

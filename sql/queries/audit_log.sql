@@ -100,6 +100,72 @@ WHERE action = $1
   AND created_at >= $3
   AND created_at <= $4;
 
+-- Severity-filtered queries
+
+-- name: GetAuditLogBySeverity :many
+SELECT * FROM audit_log
+WHERE severity = $1
+  AND created_at >= $2
+  AND created_at <= $3
+ORDER BY created_at DESC
+LIMIT $4 OFFSET $5;
+
+-- name: CountAuditLogBySeverity :one
+SELECT COUNT(*) FROM audit_log
+WHERE severity = $1
+  AND created_at >= $2
+  AND created_at <= $3;
+
+-- name: GetAuditLogByTableAndSeverity :many
+SELECT * FROM audit_log
+WHERE table_key = $1
+  AND severity = $2
+  AND created_at >= $3
+  AND created_at <= $4
+ORDER BY created_at DESC
+LIMIT $5 OFFSET $6;
+
+-- name: CountAuditLogByTableAndSeverity :one
+SELECT COUNT(*) FROM audit_log
+WHERE table_key = $1
+  AND severity = $2
+  AND created_at >= $3
+  AND created_at <= $4;
+
+-- name: GetAuditLogByActionAndSeverity :many
+SELECT * FROM audit_log
+WHERE action = $1
+  AND severity = $2
+  AND created_at >= $3
+  AND created_at <= $4
+ORDER BY created_at DESC
+LIMIT $5 OFFSET $6;
+
+-- name: CountAuditLogByActionAndSeverity :one
+SELECT COUNT(*) FROM audit_log
+WHERE action = $1
+  AND severity = $2
+  AND created_at >= $3
+  AND created_at <= $4;
+
+-- name: GetAuditLogByActionTableAndSeverity :many
+SELECT * FROM audit_log
+WHERE action = $1
+  AND table_key = $2
+  AND severity = $3
+  AND created_at >= $4
+  AND created_at <= $5
+ORDER BY created_at DESC
+LIMIT $6 OFFSET $7;
+
+-- name: CountAuditLogByActionTableAndSeverity :one
+SELECT COUNT(*) FROM audit_log
+WHERE action = $1
+  AND table_key = $2
+  AND severity = $3
+  AND created_at >= $4
+  AND created_at <= $5;
+
 -- name: ArchiveOldAuditLogs :one
 SELECT archive_audit_log($1::INTEGER, $2::INTEGER) AS archived_count;
 
