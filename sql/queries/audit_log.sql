@@ -15,159 +15,23 @@ INSERT INTO audit_log (
     $15, $16, $17, $18
 ) RETURNING *;
 
--- name: GetAuditLogByTable :many
-SELECT * FROM audit_log
-WHERE table_key = $1
-  AND created_at >= $2
-  AND created_at <= $3
-ORDER BY created_at DESC
-LIMIT $4 OFFSET $5;
-
--- name: GetAuditLogAll :many
-SELECT * FROM audit_log
-WHERE created_at >= $1
-  AND created_at <= $2
-ORDER BY created_at DESC
-LIMIT $3 OFFSET $4;
-
--- name: GetAuditLogByAction :many
-SELECT * FROM audit_log
-WHERE action = $1
-  AND created_at >= $2
-  AND created_at <= $3
-ORDER BY created_at DESC
-LIMIT $4 OFFSET $5;
-
--- name: CountAuditLogByTable :one
-SELECT COUNT(*) FROM audit_log
-WHERE table_key = $1
-  AND created_at >= $2
-  AND created_at <= $3;
-
--- name: CountAuditLogAll :one
-SELECT COUNT(*) FROM audit_log
-WHERE created_at >= $1
-  AND created_at <= $2;
-
 -- name: GetAuditLogByID :one
 SELECT * FROM audit_log WHERE id = $1;
-
--- name: GetAuditLogArchiveByTable :many
-SELECT * FROM audit_log_archive
-WHERE table_key = $1
-  AND created_at >= $2
-  AND created_at <= $3
-ORDER BY created_at DESC
-LIMIT $4 OFFSET $5;
-
--- name: GetAuditLogArchiveAll :many
-SELECT * FROM audit_log_archive
-WHERE created_at >= $1
-  AND created_at <= $2
-ORDER BY created_at DESC
-LIMIT $3 OFFSET $4;
-
--- name: CountAuditLogArchiveByTable :one
-SELECT COUNT(*) FROM audit_log_archive
-WHERE table_key = $1
-  AND created_at >= $2
-  AND created_at <= $3;
-
--- name: CountAuditLogArchiveAll :one
-SELECT COUNT(*) FROM audit_log_archive
-WHERE created_at >= $1
-  AND created_at <= $2;
-
--- name: CountAuditLogByAction :one
-SELECT COUNT(*) FROM audit_log
-WHERE action = $1
-  AND created_at >= $2
-  AND created_at <= $3;
-
--- name: GetAuditLogByActionAndTable :many
-SELECT * FROM audit_log
-WHERE action = $1
-  AND table_key = $2
-  AND created_at >= $3
-  AND created_at <= $4
-ORDER BY created_at DESC
-LIMIT $5 OFFSET $6;
-
--- name: CountAuditLogByActionAndTable :one
-SELECT COUNT(*) FROM audit_log
-WHERE action = $1
-  AND table_key = $2
-  AND created_at >= $3
-  AND created_at <= $4;
-
--- Severity-filtered queries
-
--- name: GetAuditLogBySeverity :many
-SELECT * FROM audit_log
-WHERE severity = $1
-  AND created_at >= $2
-  AND created_at <= $3
-ORDER BY created_at DESC
-LIMIT $4 OFFSET $5;
-
--- name: CountAuditLogBySeverity :one
-SELECT COUNT(*) FROM audit_log
-WHERE severity = $1
-  AND created_at >= $2
-  AND created_at <= $3;
-
--- name: GetAuditLogByTableAndSeverity :many
-SELECT * FROM audit_log
-WHERE table_key = $1
-  AND severity = $2
-  AND created_at >= $3
-  AND created_at <= $4
-ORDER BY created_at DESC
-LIMIT $5 OFFSET $6;
-
--- name: CountAuditLogByTableAndSeverity :one
-SELECT COUNT(*) FROM audit_log
-WHERE table_key = $1
-  AND severity = $2
-  AND created_at >= $3
-  AND created_at <= $4;
-
--- name: GetAuditLogByActionAndSeverity :many
-SELECT * FROM audit_log
-WHERE action = $1
-  AND severity = $2
-  AND created_at >= $3
-  AND created_at <= $4
-ORDER BY created_at DESC
-LIMIT $5 OFFSET $6;
-
--- name: CountAuditLogByActionAndSeverity :one
-SELECT COUNT(*) FROM audit_log
-WHERE action = $1
-  AND severity = $2
-  AND created_at >= $3
-  AND created_at <= $4;
-
--- name: GetAuditLogByActionTableAndSeverity :many
-SELECT * FROM audit_log
-WHERE action = $1
-  AND table_key = $2
-  AND severity = $3
-  AND created_at >= $4
-  AND created_at <= $5
-ORDER BY created_at DESC
-LIMIT $6 OFFSET $7;
-
--- name: CountAuditLogByActionTableAndSeverity :one
-SELECT COUNT(*) FROM audit_log
-WHERE action = $1
-  AND table_key = $2
-  AND severity = $3
-  AND created_at >= $4
-  AND created_at <= $5;
 
 -- name: ArchiveOldAuditLogs :one
 SELECT archive_audit_log($1::INTEGER, $2::INTEGER) AS archived_count;
 
 -- name: PurgeOldArchives :one
 SELECT purge_old_archives($1::INTEGER) AS deleted_count;
+
+-- name: GetAuditLogArchiveByTable :many
+SELECT * FROM audit_log_archive
+WHERE table_key = $1 AND created_at >= $2 AND created_at <= $3
+ORDER BY created_at DESC
+LIMIT $4 OFFSET $5;
+
+-- name: GetAuditLogArchiveAll :many
+SELECT * FROM audit_log_archive
+WHERE created_at >= $1 AND created_at <= $2
+ORDER BY created_at DESC
+LIMIT $3 OFFSET $4;

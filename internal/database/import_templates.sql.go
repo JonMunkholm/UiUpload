@@ -54,40 +54,6 @@ func (q *Queries) DeleteImportTemplate(ctx context.Context, id pgtype.UUID) erro
 	return err
 }
 
-const getAllImportTemplates = `-- name: GetAllImportTemplates :many
-SELECT id, table_key, name, column_mapping, csv_headers, created_at, updated_at
-FROM import_templates
-ORDER BY table_key, updated_at DESC
-`
-
-func (q *Queries) GetAllImportTemplates(ctx context.Context) ([]ImportTemplate, error) {
-	rows, err := q.db.Query(ctx, getAllImportTemplates)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ImportTemplate{}
-	for rows.Next() {
-		var i ImportTemplate
-		if err := rows.Scan(
-			&i.ID,
-			&i.TableKey,
-			&i.Name,
-			&i.ColumnMapping,
-			&i.CsvHeaders,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const getImportTemplate = `-- name: GetImportTemplate :one
 SELECT id, table_key, name, column_mapping, csv_headers, created_at, updated_at
 FROM import_templates
@@ -96,32 +62,6 @@ WHERE id = $1
 
 func (q *Queries) GetImportTemplate(ctx context.Context, id pgtype.UUID) (ImportTemplate, error) {
 	row := q.db.QueryRow(ctx, getImportTemplate, id)
-	var i ImportTemplate
-	err := row.Scan(
-		&i.ID,
-		&i.TableKey,
-		&i.Name,
-		&i.ColumnMapping,
-		&i.CsvHeaders,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const getImportTemplateByName = `-- name: GetImportTemplateByName :one
-SELECT id, table_key, name, column_mapping, csv_headers, created_at, updated_at
-FROM import_templates
-WHERE table_key = $1 AND name = $2
-`
-
-type GetImportTemplateByNameParams struct {
-	TableKey string `json:"table_key"`
-	Name     string `json:"name"`
-}
-
-func (q *Queries) GetImportTemplateByName(ctx context.Context, arg GetImportTemplateByNameParams) (ImportTemplate, error) {
-	row := q.db.QueryRow(ctx, getImportTemplateByName, arg.TableKey, arg.Name)
 	var i ImportTemplate
 	err := row.Scan(
 		&i.ID,

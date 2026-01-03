@@ -92,11 +92,6 @@ func (w *WhereBuilder) Build() (string, []interface{}) {
 	return " WHERE " + strings.Join(w.conditions, " AND "), w.args
 }
 
-// Args returns the current arguments slice.
-func (w *WhereBuilder) Args() []interface{} {
-	return w.args
-}
-
 // NextArgIndex returns the next available parameter index.
 func (w *WhereBuilder) NextArgIndex() int {
 	return w.argIndex

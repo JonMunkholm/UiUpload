@@ -16,16 +16,6 @@ type ArchiveConfig struct {
 	CheckInterval         time.Duration // How often to run (default: 24h)
 }
 
-// DefaultArchiveConfig returns sensible defaults for archive configuration.
-func DefaultArchiveConfig() ArchiveConfig {
-	return ArchiveConfig{
-		HotRetentionDays:      90,
-		ArchiveRetentionYears: 7,
-		BatchSize:             5000,
-		CheckInterval:         24 * time.Hour,
-	}
-}
-
 // StartArchiveScheduler starts a background goroutine that periodically
 // archives old audit log entries and purges very old archives.
 // It runs immediately on start, then every CheckInterval.

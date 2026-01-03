@@ -190,32 +190,6 @@ func (q *Queries) GetUploadHistory(ctx context.Context, name string) ([]GetUploa
 	return items, nil
 }
 
-const insertCsvUpload = `-- name: InsertCsvUpload :exec
-INSERT INTO csv_uploads (name, action, file_name, rows_inserted, rows_skipped, duration_ms, uploaded_at)
-VALUES ($1, $2, $3, $4, $5, $6, NOW())
-`
-
-type InsertCsvUploadParams struct {
-	Name         string      `json:"name"`
-	Action       string      `json:"action"`
-	FileName     pgtype.Text `json:"file_name"`
-	RowsInserted pgtype.Int4 `json:"rows_inserted"`
-	RowsSkipped  pgtype.Int4 `json:"rows_skipped"`
-	DurationMs   pgtype.Int4 `json:"duration_ms"`
-}
-
-func (q *Queries) InsertCsvUpload(ctx context.Context, arg InsertCsvUploadParams) error {
-	_, err := q.db.Exec(ctx, insertCsvUpload,
-		arg.Name,
-		arg.Action,
-		arg.FileName,
-		arg.RowsInserted,
-		arg.RowsSkipped,
-		arg.DurationMs,
-	)
-	return err
-}
-
 const markUploadRolledBack = `-- name: MarkUploadRolledBack :exec
 UPDATE csv_uploads
 SET status = 'rolled_back'
@@ -224,15 +198,6 @@ WHERE id = $1
 
 func (q *Queries) MarkUploadRolledBack(ctx context.Context, id pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, markUploadRolledBack, id)
-	return err
-}
-
-const resetCsvUploads = `-- name: ResetCsvUploads :exec
-DELETE FROM csv_uploads
-`
-
-func (q *Queries) ResetCsvUploads(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, resetCsvUploads)
 	return err
 }
 

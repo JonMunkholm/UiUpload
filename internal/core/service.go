@@ -120,41 +120,6 @@ func (s *Service) StartUpload(ctx context.Context, tableKey string, fileName str
 	return uploadID, nil
 }
 
-// StartUploadFromDir begins an upload from the standard directory structure.
-// Processes all CSV files in the table's upload directory.
-func (s *Service) StartUploadFromDir(ctx context.Context, tableKey string) (string, error) {
-	def, ok := Get(tableKey)
-	if !ok {
-		return "", fmt.Errorf("unknown table: %s", tableKey)
-	}
-
-	dir := filepath.Join(s.uploadsDir, def.Info.Group, def.Info.Directory)
-
-	uploadID := uuid.New().String()
-	uploadCtx, cancel := context.WithTimeout(context.Background(), UploadTimeout)
-
-	upload := &activeUpload{
-		ID:       uploadID,
-		TableKey: tableKey,
-		Cancel:   cancel,
-		Progress: UploadProgress{
-			UploadID: uploadID,
-			TableKey: tableKey,
-			Phase:    PhaseStarting,
-		},
-		Done:      make(chan struct{}),
-		Listeners: make([]chan UploadProgress, 0),
-	}
-
-	s.mu.Lock()
-	s.uploads[uploadID] = upload
-	s.mu.Unlock()
-
-	go s.processUploadDir(uploadCtx, upload, def, dir)
-
-	return uploadID, nil
-}
-
 // SubscribeProgress returns a channel that receives progress updates.
 // The channel is closed when the upload completes.
 func (s *Service) SubscribeProgress(uploadID string) (<-chan UploadProgress, error) {
@@ -756,25 +721,6 @@ type TableDataResult struct {
 	SearchQuery   string            // Current search term, if any
 	ActiveFilters map[string]string // Active column filters: column -> "op:value"
 	Aggregations  Aggregations      // Column aggregations for numeric columns
-}
-
-// buildFilterConditions generates WHERE clause conditions from filters.
-// Returns conditions, args, and next arg index.
-func buildFilterConditions(filters FilterSet, startArgIndex int) ([]string, []interface{}, int) {
-	var conditions []string
-	var args []interface{}
-	argIdx := startArgIndex
-
-	for _, f := range filters.Filters {
-		condition, filterArgs, newArgIdx := buildSingleFilter(f, argIdx)
-		if condition != "" {
-			conditions = append(conditions, condition)
-			args = append(args, filterArgs...)
-			argIdx = newArgIdx
-		}
-	}
-
-	return conditions, args, argIdx
 }
 
 // buildSingleFilter generates SQL for a single filter.

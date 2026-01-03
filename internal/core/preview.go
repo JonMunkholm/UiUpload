@@ -64,7 +64,6 @@ const (
 	maxUpdateDiffs      = 10
 	maxErrorSamples     = 20
 	maxDuplicateSamples = 10
-	keyBatchSize        = 1000
 )
 
 // AnalyzeUpload performs read-only analysis of a CSV upload.

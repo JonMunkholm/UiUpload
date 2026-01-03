@@ -8,11 +8,6 @@ SELECT id, table_key, name, column_mapping, csv_headers, created_at, updated_at
 FROM import_templates
 WHERE id = $1;
 
--- name: GetImportTemplateByName :one
-SELECT id, table_key, name, column_mapping, csv_headers, created_at, updated_at
-FROM import_templates
-WHERE table_key = $1 AND name = $2;
-
 -- name: ListImportTemplates :many
 SELECT id, table_key, name, column_mapping, csv_headers, created_at, updated_at
 FROM import_templates
@@ -28,8 +23,3 @@ RETURNING id, table_key, name, column_mapping, csv_headers, created_at, updated_
 -- name: DeleteImportTemplate :exec
 DELETE FROM import_templates
 WHERE id = $1;
-
--- name: GetAllImportTemplates :many
-SELECT id, table_key, name, column_mapping, csv_headers, created_at, updated_at
-FROM import_templates
-ORDER BY table_key, updated_at DESC;

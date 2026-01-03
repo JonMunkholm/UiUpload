@@ -12,24 +12,6 @@
         @apply px-4 py-2 rounded font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-gray-900;
     }
 
-    .btn-primary {
-        @apply bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500;
-    }
-
-    .btn-danger {
-        @apply bg-red-600 text-white hover:bg-red-700 focus:ring-red-500;
-    }
-
-    .btn-secondary {
-        @apply bg-gray-200 text-gray-800 hover:bg-gray-300 focus:ring-gray-500
-               dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600;
-    }
-
-    .card {
-        @apply bg-white rounded-lg shadow-md p-6
-               dark:bg-gray-800 dark:shadow-gray-900/50;
-    }
-
     .upload-zone {
         @apply border-2 border-dashed border-gray-300 rounded-lg p-8 text-center
                transition-all duration-200 cursor-pointer
