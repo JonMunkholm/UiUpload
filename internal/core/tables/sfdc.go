@@ -48,6 +48,14 @@ func registerSfdcCustomers() {
 		DeleteByUploadID: func(ctx context.Context, dbtx core.DBTX, uploadID pgtype.UUID) (int64, error) {
 			return db.New(dbtx).DeleteSfdcCustomersByUploadId(ctx, uploadID)
 		},
+		// PostgreSQL COPY support: column order must match INSERT statement
+		CopyColumns: []string{
+			"account_id_casesafe", "account_name", "last_activity", "type", "upload_id",
+		},
+		CopyRow: func(params any) []any {
+			p := params.(db.InsertSfdcCustomerParams)
+			return []any{p.AccountIDCasesafe, p.AccountName, p.LastActivity, p.Type, p.UploadID}
+		},
 	})
 }
 
@@ -85,6 +93,14 @@ func registerSfdcPriceBook() {
 		},
 		DeleteByUploadID: func(ctx context.Context, dbtx core.DBTX, uploadID pgtype.UUID) (int64, error) {
 			return db.New(dbtx).DeleteSfdcPriceBookByUploadId(ctx, uploadID)
+		},
+		// PostgreSQL COPY support: column order must match INSERT statement
+		CopyColumns: []string{
+			"price_book_name", "list_price", "product_name", "product_code", "product_id_casesafe", "upload_id",
+		},
+		CopyRow: func(params any) []any {
+			p := params.(db.InsertSfdcPriceBookParams)
+			return []any{p.PriceBookName, p.ListPrice, p.ProductName, p.ProductCode, p.ProductIDCasesafe, p.UploadID}
 		},
 	})
 }
@@ -165,6 +181,26 @@ func registerSfdcOppDetail() {
 		},
 		DeleteByUploadID: func(ctx context.Context, dbtx core.DBTX, uploadID pgtype.UUID) (int64, error) {
 			return db.New(dbtx).DeleteSfdcOppDetailByUploadId(ctx, uploadID)
+		},
+		// PostgreSQL COPY support: column order must match INSERT statement
+		CopyColumns: []string{
+			"opportunity_id", "opportunity_product_casesafe_id", "opportunity_name", "account_name",
+			"close_date", "booked_date", "fiscal_period", "payment_schedule", "payment_due",
+			"contract_start_date", "contract_end_date", "term_in_months_deprecated",
+			"product_name", "deployment_type", "amount", "quantity", "list_price", "sales_price", "total_price",
+			"start_date", "end_date", "term_in_months", "product_code",
+			"total_amount_due_customer", "total_amount_due_partner", "active_product", "upload_id",
+		},
+		CopyRow: func(params any) []any {
+			p := params.(db.InsertSfdcOppDetailParams)
+			return []any{
+				p.OpportunityID, p.OpportunityProductCasesafeID, p.OpportunityName, p.AccountName,
+				p.CloseDate, p.BookedDate, p.FiscalPeriod, p.PaymentSchedule, p.PaymentDue,
+				p.ContractStartDate, p.ContractEndDate, p.TermInMonthsDeprecated,
+				p.ProductName, p.DeploymentType, p.Amount, p.Quantity, p.ListPrice, p.SalesPrice, p.TotalPrice,
+				p.StartDate, p.EndDate, p.TermInMonths, p.ProductCode,
+				p.TotalAmountDueCustomer, p.TotalAmountDuePartner, p.ActiveProduct, p.UploadID,
+			}
 		},
 	})
 }

@@ -16,6 +16,39 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+// sanitizeErrorMessage strips database internals and sensitive details from error messages.
+// The original error is logged server-side; only a safe message is returned to clients.
+func sanitizeErrorMessage(msg string) string {
+	// Patterns that indicate database/internal errors we should hide
+	sensitivePatterns := []string{
+		"pq:",          // PostgreSQL driver prefix
+		"pgx:",         // pgx driver prefix
+		"SQLSTATE",     // SQL state codes
+		"syntax error", // SQL syntax errors
+		"column",       // Column-related errors
+		"table",        // Table-related errors (be careful with this)
+		"constraint",   // Constraint violations
+		"duplicate key",
+		"violates",
+		"relation",
+		"does not exist",
+		"permission denied",
+		"authentication failed",
+		"connection refused",
+		"timeout",
+		"deadlock",
+	}
+
+	lowerMsg := strings.ToLower(msg)
+	for _, pattern := range sensitivePatterns {
+		if strings.Contains(lowerMsg, pattern) {
+			return "an internal error occurred"
+		}
+	}
+
+	return msg
+}
+
 // MaxUploadSize is the maximum allowed file size (100MB).
 const MaxUploadSize = 100 * 1024 * 1024
 

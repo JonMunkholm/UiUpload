@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	db "github.com/JonMunkholm/TUI/internal/database"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -26,6 +28,7 @@ var MaxHeaderSearchRows = 20
 var ContextCheckInterval = 100
 
 // processUpload handles direct file upload (from web form).
+// Uses streaming CSV parsing to minimize memory usage: O(batch_size) instead of O(file_size).
 func (s *Service) processUpload(ctx context.Context, upload *activeUpload, def TableDefinition, fileData []byte) {
 	startTime := time.Now()
 
@@ -35,30 +38,11 @@ func (s *Service) processUpload(ctx context.Context, upload *activeUpload, def T
 		s.cleanup(upload.ID, 5*time.Minute)
 	}()
 
-	// Sanitize UTF-8
+	// Sanitize UTF-8 (streaming sanitization would add complexity for minimal gain)
 	fileData = sanitizeUTF8(fileData)
 
-	// Parse CSV
-	upload.Progress.Phase = PhaseReading
-	upload.notifyProgress()
-
-	records, err := parseCSV(fileData)
-	if err != nil {
-		upload.Progress.Phase = PhaseFailed
-		upload.Progress.Error = err.Error()
-		upload.notifyProgress()
-		upload.Result = &UploadResult{
-			UploadID: upload.ID,
-			TableKey: upload.TableKey,
-			FileName: upload.FileName,
-			Error:    err.Error(),
-			Duration: time.Since(startTime),
-		}
-		return
-	}
-
-	// Process the records (upload tracking is now done inside processRecords)
-	result := s.processRecords(ctx, upload, def, records, upload.FileName, startTime)
+	// Process using streaming parser (reads CSV row-by-row instead of loading all into memory)
+	result := s.processStreamingRecords(ctx, upload, def, fileData, upload.FileName, startTime)
 	upload.Result = result
 }
 
@@ -157,16 +141,9 @@ func (s *Service) processUploadDir(ctx context.Context, upload *activeUpload, de
 		}
 
 		data = sanitizeUTF8(data)
-		records, err := parseCSV(data)
-		if err != nil {
-			allFailedRows = append(allFailedRows, FailedRow{
-				FileName: fileName,
-				Reason:   fmt.Sprintf("parse CSV: %v", err),
-			})
-			continue
-		}
 
-		result := s.processRecords(ctx, upload, def, records, fileName, startTime)
+		// Use streaming parser for memory efficiency
+		result := s.processStreamingRecords(ctx, upload, def, data, fileName, startTime)
 		totalInserted += result.Inserted
 		totalSkipped += result.Skipped
 		allFailedRows = append(allFailedRows, result.FailedRows...)
@@ -197,247 +174,138 @@ func (s *Service) processUploadDir(ctx context.Context, upload *activeUpload, de
 	}
 }
 
-// processRecords processes CSV records and inserts into database.
-func (s *Service) processRecords(ctx context.Context, upload *activeUpload, def TableDefinition, records [][]string, fileName string, startTime time.Time) *UploadResult {
-	result := &UploadResult{
-		UploadID: upload.ID,
-		TableKey: upload.TableKey,
-		FileName: fileName,
+// BatchSize is the number of rows to insert in a single batch.
+// 500 is a good balance between network efficiency and memory usage.
+var BatchSize = 500
+
+// validatedRow holds a validated row ready for insertion.
+type validatedRow struct {
+	index   int      // Position in dataRows
+	lineNum int      // CSV line number for error reporting
+	params  any      // Built params for insertion
+	row     []string // Original data for error reporting
+}
+
+// insertBatch attempts to insert a batch of rows.
+// Uses a single savepoint per batch instead of per row (3x fewer round-trips).
+// Returns the number of rows that failed to insert.
+// On batch failure, falls back to row-by-row insertion to identify bad rows.
+func (s *Service) insertBatch(ctx context.Context, tx pgx.Tx, def TableDefinition, batch []validatedRow, failedRows *[]FailedRow, fileName string) int {
+	if len(batch) == 0 {
+		return 0
 	}
 
-	if len(records) == 0 {
-		result.Error = "empty file"
-		return result
-	}
-
-	var csvHeaderIdx HeaderIndex
-	var dataRows [][]string
-	var headerRowIndex int
-
-	// Track the actual CSV header row for failed rows export
-	var csvHeaderRow []string
-
-	// Check if user provided explicit column mapping
-	if upload.Mapping != nil && len(upload.Mapping) > 0 {
-		// User provided mapping - use first row as header, rest as data
-		headerRow := records[0]
-		csvHeaderRow = headerRow
-		dataRows = records[1:]
-		headerRowIndex = 0
-		csvHeaderIdx = buildMappedHeaderIndex(upload.Mapping, headerRow)
-	} else {
-		// Existing behavior: auto-detect header row
-		headerIdx := findHeaderInRecords(records, def.Info.Columns)
-		if headerIdx < 0 {
-			result.Error = fmt.Sprintf("header not found (expected: %v)", def.Info.Columns)
-			upload.Progress.Phase = PhaseFailed
-			upload.Progress.Error = result.Error
-			upload.notifyProgress()
-			return result
+	// Try COPY if the table supports it (10-100x faster than INSERT)
+	if def.SupportsCopy() {
+		failed := s.insertWithCopy(ctx, tx, def, batch, failedRows, fileName)
+		if failed == 0 {
+			return 0
 		}
-		headerRowIndex = headerIdx
-		headerRow := records[headerIdx]
-		csvHeaderRow = headerRow
-		dataRows = records[headerIdx+1:]
-		csvHeaderIdx = MakeHeaderIndex(headerRow)
+		// COPY failed - fall through to savepoint-based insert
+		log.Printf("COPY failed for %s, falling back to savepoint insert", def.Info.Key)
 	}
 
-	if len(dataRows) == 0 {
-		result.Error = "no data rows after header"
-		return result
-	}
-
-	expectedCols := len(def.Info.Columns)
-
-	upload.Progress.Phase = PhaseInserting
-	upload.Progress.TotalRows = len(dataRows)
-	upload.Progress.CurrentRow = 0
-	upload.notifyProgress()
-
-	// Create upload record FIRST to get uploadID for linking rows
-	var uploadID pgtype.UUID
-	createParams := db.CreateUploadRecordParams{
-		Name:   upload.TableKey,
-		Action: "upload",
-	}
-	if fileName != "" {
-		createParams.FileName.String = fileName
-		createParams.FileName.Valid = true
-	}
-	uploadID, err := db.New(s.pool).CreateUploadRecord(ctx, createParams)
+	// Create savepoint for the entire batch
+	_, err := tx.Exec(ctx, "SAVEPOINT batch_sp")
 	if err != nil {
-		// Fall back to empty UUID if creation fails (backwards compat)
-		uploadID = pgtype.UUID{}
+		// Savepoint failed - fall back to row-by-row
+		return s.insertRowByRow(ctx, tx, def, batch, failedRows, fileName)
 	}
 
-	// Begin transaction
-	tx, err := s.pool.Begin(ctx)
+	// Try inserting all rows in the batch without per-row savepoints
+	allSucceeded := true
+	for _, vr := range batch {
+		if err := def.Insert(ctx, tx, vr.params); err != nil {
+			allSucceeded = false
+			break
+		}
+	}
+
+	if allSucceeded {
+		// Release savepoint - batch succeeded
+		_, _ = tx.Exec(ctx, "RELEASE SAVEPOINT batch_sp")
+		return 0
+	}
+
+	// Batch had failures - rollback and retry row-by-row to identify bad rows
+	_, _ = tx.Exec(ctx, "ROLLBACK TO SAVEPOINT batch_sp")
+	_, _ = tx.Exec(ctx, "RELEASE SAVEPOINT batch_sp")
+
+	return s.insertRowByRow(ctx, tx, def, batch, failedRows, fileName)
+}
+
+// insertWithCopy uses PostgreSQL COPY protocol for bulk insertion.
+// Returns the number of failed rows (0 = all succeeded).
+// COPY is atomic per batch - if it fails, all rows are rejected.
+func (s *Service) insertWithCopy(ctx context.Context, tx pgx.Tx, def TableDefinition, batch []validatedRow, failedRows *[]FailedRow, fileName string) int {
+	// Create savepoint so we can rollback if COPY fails
+	_, err := tx.Exec(ctx, "SAVEPOINT copy_sp")
 	if err != nil {
-		result.Error = fmt.Sprintf("begin transaction: %v", err)
-		upload.Progress.Phase = PhaseFailed
-		upload.Progress.Error = result.Error
-		upload.notifyProgress()
-		return result
+		return len(batch) // Signal failure
 	}
-	defer tx.Rollback(ctx)
 
-	var failedRows []FailedRow
+	// Convert validated rows to COPY format
+	copyRows := make([][]any, len(batch))
+	for i, vr := range batch {
+		copyRows[i] = def.CopyRow(vr.params)
+	}
 
-	for i, row := range dataRows {
-		lineNum := headerRowIndex + i + 2 // 1-indexed, after header
+	// Execute COPY
+	_, err = tx.CopyFrom(ctx,
+		pgx.Identifier{def.Info.Key},
+		def.CopyColumns,
+		pgx.CopyFromRows(copyRows),
+	)
 
-		// Check for cancellation periodically
-		if i%ContextCheckInterval == 0 {
-			if ctx.Err() != nil {
-				upload.Progress.Phase = PhaseCancelled
-				upload.notifyProgress()
-				result.Error = "cancelled"
-				return result
-			}
-		}
+	if err != nil {
+		// COPY failed - rollback and signal failure
+		_, _ = tx.Exec(ctx, "ROLLBACK TO SAVEPOINT copy_sp")
+		_, _ = tx.Exec(ctx, "RELEASE SAVEPOINT copy_sp")
+		return len(batch) // Signal that caller should try row-by-row
+	}
 
-		// Skip empty rows
-		if isEmptyRow(row) {
-			continue
-		}
+	// Success - release savepoint
+	_, _ = tx.Exec(ctx, "RELEASE SAVEPOINT copy_sp")
+	return 0
+}
 
-		// Check column count
-		if len(row) < expectedCols {
-			failedRows = append(failedRows, FailedRow{
+// insertRowByRow inserts rows one at a time with individual savepoints.
+// Used as fallback when batch insert fails.
+func (s *Service) insertRowByRow(ctx context.Context, tx pgx.Tx, def TableDefinition, batch []validatedRow, failedRows *[]FailedRow, fileName string) int {
+	failed := 0
+
+	for i, vr := range batch {
+		savepointName := fmt.Sprintf("row_sp_%d", i)
+		_, err := tx.Exec(ctx, fmt.Sprintf("SAVEPOINT %s", savepointName))
+		if err != nil {
+			// If we can't create savepoint, mark row as failed
+			*failedRows = append(*failedRows, FailedRow{
 				FileName:   fileName,
-				LineNumber: lineNum,
-				Reason:     fmt.Sprintf("expected %d columns, got %d", expectedCols, len(row)),
-				Data:       row,
+				LineNumber: vr.lineNum,
+				Reason:     fmt.Sprintf("savepoint: %v", err),
+				Data:       vr.row,
 			})
+			failed++
 			continue
 		}
 
-		// Validate and build params with uploadID
-		params, err := buildAndValidate(row, csvHeaderIdx, def, uploadID)
-		if err != nil {
-			failedRows = append(failedRows, FailedRow{
-				FileName:   fileName,
-				LineNumber: lineNum,
-				Reason:     err.Error(),
-				Data:       row,
-			})
-			continue
-		}
-
-		// Use savepoint for each insert
-		savepointName := fmt.Sprintf("sp_%d", i)
-		_, err = tx.Exec(ctx, fmt.Sprintf("SAVEPOINT %s", savepointName))
-		if err != nil {
-			result.Error = fmt.Sprintf("create savepoint: %v", err)
-			upload.Progress.Phase = PhaseFailed
-			upload.Progress.Error = result.Error
-			upload.notifyProgress()
-			return result
-		}
-
-		err = def.Insert(ctx, tx, params)
-		if err != nil {
-			// Rollback savepoint
+		if err := def.Insert(ctx, tx, vr.params); err != nil {
+			// Rollback and mark as failed
 			_, _ = tx.Exec(ctx, fmt.Sprintf("ROLLBACK TO SAVEPOINT %s", savepointName))
-			failedRows = append(failedRows, FailedRow{
+			*failedRows = append(*failedRows, FailedRow{
 				FileName:   fileName,
-				LineNumber: lineNum,
+				LineNumber: vr.lineNum,
 				Reason:     fmt.Sprintf("insert: %v", err),
-				Data:       row,
+				Data:       vr.row,
 			})
-			continue
+			failed++
 		}
 
-		// Release savepoint
+		// Release savepoint (works for both success and rollback cases)
 		_, _ = tx.Exec(ctx, fmt.Sprintf("RELEASE SAVEPOINT %s", savepointName))
-
-		result.Inserted++
-		upload.Progress.CurrentRow = i + 1
-		upload.Progress.Inserted = result.Inserted
-		upload.Progress.Skipped = len(failedRows)
-
-		// Notify progress every 100 rows
-		if i%100 == 0 {
-			upload.notifyProgress()
-		}
 	}
 
-	// Commit transaction
-	if err := tx.Commit(ctx); err != nil {
-		result.Error = fmt.Sprintf("commit: %v", err)
-		upload.Progress.Phase = PhaseFailed
-		upload.Progress.Error = result.Error
-		upload.notifyProgress()
-		return result
-	}
-
-	// Log audit entry for successful upload
-	var uploadIDStr string
-	if uploadID.Valid {
-		uploadIDStr = pgUUIDToString(uploadID)
-	}
-	s.LogAudit(ctx, AuditLogParams{
-		Action:       ActionUpload,
-		TableKey:     upload.TableKey,
-		UploadID:     uploadIDStr,
-		RowsAffected: result.Inserted,
-		IPAddress:    GetIPAddressFromContext(ctx),
-		UserAgent:    GetUserAgentFromContext(ctx),
-		Reason:       fmt.Sprintf("Uploaded %s", fileName),
-	})
-
-	// Update upload record with final counts and headers
-	if uploadID.Valid {
-		updateParams := db.UpdateUploadCountsParams{
-			ID: uploadID,
-		}
-		updateParams.RowsInserted.Int32 = int32(result.Inserted)
-		updateParams.RowsInserted.Valid = true
-		updateParams.RowsSkipped.Int32 = int32(len(failedRows))
-		updateParams.RowsSkipped.Valid = true
-		updateParams.DurationMs.Int32 = int32(time.Since(startTime).Milliseconds())
-		updateParams.DurationMs.Valid = true
-		if err := db.New(s.pool).UpdateUploadCounts(ctx, updateParams); err != nil {
-			log.Printf("failed to update upload counts: %v", err)
-		}
-
-		// Store CSV headers for failed rows export
-		if len(csvHeaderRow) > 0 {
-			if err := db.New(s.pool).UpdateUploadHeaders(ctx, db.UpdateUploadHeadersParams{
-				ID:         uploadID,
-				CsvHeaders: csvHeaderRow,
-			}); err != nil {
-				log.Printf("failed to update upload headers: %v", err)
-			}
-		}
-
-		// Persist failed rows for later download
-		if len(failedRows) > 0 {
-			for _, fr := range failedRows {
-				if err := db.New(s.pool).InsertFailedRow(ctx, db.InsertFailedRowParams{
-					UploadID:   uploadID,
-					LineNumber: int32(fr.LineNumber),
-					Reason:     fr.Reason,
-					RowData:    fr.Data,
-				}); err != nil {
-					log.Printf("failed to insert failed row: %v", err)
-				}
-			}
-		}
-	}
-
-	result.TotalRows = len(dataRows)
-	result.Skipped = len(failedRows)
-	result.FailedRows = failedRows
-	result.Duration = time.Since(startTime)
-
-	upload.Progress.Phase = PhaseComplete
-	upload.Progress.CurrentRow = len(dataRows)
-	upload.Progress.Inserted = result.Inserted
-	upload.Progress.Skipped = result.Skipped
-	upload.notifyProgress()
-
-	return result
+	return failed
 }
 
 // buildAndValidate validates a row and builds insert parameters.
@@ -577,4 +445,348 @@ func isEmptyRow(row []string) bool {
 		}
 	}
 	return true
+}
+
+// countingReader wraps an io.Reader to track bytes read for progress reporting.
+type countingReader struct {
+	r     io.Reader
+	read  int64
+	total int64
+}
+
+func (cr *countingReader) Read(p []byte) (int, error) {
+	n, err := cr.r.Read(p)
+	cr.read += int64(n)
+	return n, err
+}
+
+// stripBOM removes UTF-8 BOM (Byte Order Mark) from the start of data if present.
+// BOM is 0xEF 0xBB 0xBF and some Windows programs add it to UTF-8 files.
+func stripBOM(data []byte) []byte {
+	if len(data) >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF {
+		return data[3:]
+	}
+	return data
+}
+
+// processStreamingRecords processes CSV data with streaming parsing.
+// Memory usage is O(batch_size) instead of O(file_size).
+//
+// The streaming approach:
+// 1. Buffer first MaxHeaderSearchRows for header detection
+// 2. Stream remaining rows, accumulating batches of BatchSize
+// 3. Validate and insert each batch before reading more
+// 4. Report progress using bytes read / total bytes
+func (s *Service) processStreamingRecords(ctx context.Context, upload *activeUpload, def TableDefinition, fileData []byte, fileName string, startTime time.Time) *UploadResult {
+	result := &UploadResult{
+		UploadID: upload.ID,
+		TableKey: upload.TableKey,
+		FileName: fileName,
+	}
+
+	// Strip BOM if present
+	fileData = stripBOM(fileData)
+
+	totalBytes := int64(len(fileData))
+	if totalBytes == 0 {
+		result.Error = "empty file"
+		return result
+	}
+
+	// Create counting reader for byte-based progress
+	cr := &countingReader{
+		r:     bytes.NewReader(fileData),
+		total: totalBytes,
+	}
+
+	// Initialize progress with byte-based tracking
+	upload.Progress.Phase = PhaseReading
+	upload.Progress.BytesTotal = totalBytes
+	upload.Progress.BytesRead = 0
+	upload.notifyProgress()
+
+	// Create CSV reader
+	csvReader := csv.NewReader(cr)
+	csvReader.FieldsPerRecord = -1 // Allow variable field counts
+	csvReader.LazyQuotes = true    // Be lenient with quoting
+
+	// Phase 1: Buffer first N rows for header detection
+	headerBuffer := make([][]string, 0, MaxHeaderSearchRows)
+	for i := 0; i < MaxHeaderSearchRows; i++ {
+		row, err := csvReader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			result.Error = fmt.Sprintf("read CSV: %v", err)
+			upload.Progress.Phase = PhaseFailed
+			upload.Progress.Error = result.Error
+			upload.notifyProgress()
+			return result
+		}
+		headerBuffer = append(headerBuffer, row)
+	}
+
+	if len(headerBuffer) == 0 {
+		result.Error = "empty file"
+		return result
+	}
+
+	// Find header row
+	var csvHeaderIdx HeaderIndex
+	var headerRowIndex int
+	var csvHeaderRow []string
+
+	if upload.Mapping != nil && len(upload.Mapping) > 0 {
+		// User provided explicit column mapping
+		headerRow := headerBuffer[0]
+		csvHeaderRow = headerRow
+		headerRowIndex = 0
+		csvHeaderIdx = buildMappedHeaderIndex(upload.Mapping, headerRow)
+	} else {
+		// Auto-detect header row in buffered rows
+		headerIdx := findHeaderInRecords(headerBuffer, def.Info.Columns)
+		if headerIdx < 0 {
+			result.Error = fmt.Sprintf("header not found (expected: %v)", def.Info.Columns)
+			upload.Progress.Phase = PhaseFailed
+			upload.Progress.Error = result.Error
+			upload.notifyProgress()
+			return result
+		}
+		headerRowIndex = headerIdx
+		csvHeaderRow = headerBuffer[headerIdx]
+		csvHeaderIdx = MakeHeaderIndex(csvHeaderRow)
+	}
+
+	expectedCols := len(def.Info.Columns)
+
+	// Create upload record for tracking
+	var uploadID pgtype.UUID
+	createParams := db.CreateUploadRecordParams{
+		Name:   upload.TableKey,
+		Action: "upload",
+	}
+	if fileName != "" {
+		createParams.FileName.String = fileName
+		createParams.FileName.Valid = true
+	}
+	uploadID, err := db.New(s.pool).CreateUploadRecord(ctx, createParams)
+	if err != nil {
+		uploadID = pgtype.UUID{}
+	}
+
+	// Begin transaction
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		result.Error = fmt.Sprintf("begin transaction: %v", err)
+		upload.Progress.Phase = PhaseFailed
+		upload.Progress.Error = result.Error
+		upload.notifyProgress()
+		return result
+	}
+	defer tx.Rollback(ctx)
+
+	upload.Progress.Phase = PhaseInserting
+	upload.notifyProgress()
+
+	var failedRows []FailedRow
+	var totalProcessed int
+	lineNum := headerRowIndex + 2 // 1-indexed, after header
+
+	// Pre-allocate batch slice (reused across batches)
+	batch := make([]validatedRow, 0, BatchSize)
+
+	// Helper to process and insert a batch
+	flushBatch := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+
+		batchFailed := s.insertBatch(ctx, tx, def, batch, &failedRows, fileName)
+		batchInserted := len(batch) - batchFailed
+		result.Inserted += batchInserted
+
+		// Update progress
+		upload.Progress.BytesRead = cr.read
+		upload.Progress.Inserted = result.Inserted
+		upload.Progress.Skipped = len(failedRows)
+		upload.notifyProgress()
+
+		// Reset batch (reuse backing array)
+		batch = batch[:0]
+		return nil
+	}
+
+	// Helper to validate and add a row to the batch
+	processRow := func(row []string) {
+		totalProcessed++
+
+		// Skip empty rows
+		if isEmptyRow(row) {
+			return
+		}
+
+		// Check column count
+		if len(row) < expectedCols {
+			failedRows = append(failedRows, FailedRow{
+				FileName:   fileName,
+				LineNumber: lineNum,
+				Reason:     fmt.Sprintf("expected %d columns, got %d", expectedCols, len(row)),
+				Data:       row,
+			})
+			return
+		}
+
+		// Validate and build params
+		params, err := buildAndValidate(row, csvHeaderIdx, def, uploadID)
+		if err != nil {
+			failedRows = append(failedRows, FailedRow{
+				FileName:   fileName,
+				LineNumber: lineNum,
+				Reason:     err.Error(),
+				Data:       row,
+			})
+			return
+		}
+
+		batch = append(batch, validatedRow{
+			index:   totalProcessed - 1,
+			lineNum: lineNum,
+			params:  params,
+			row:     row,
+		})
+	}
+
+	// Process data rows from header buffer (after header row)
+	for i := headerRowIndex + 1; i < len(headerBuffer); i++ {
+		processRow(headerBuffer[i])
+		lineNum++
+
+		// Flush batch if full
+		if len(batch) >= BatchSize {
+			if err := flushBatch(); err != nil {
+				return result
+			}
+		}
+	}
+
+	// Stream remaining rows from CSV
+	for {
+		// Check for cancellation periodically
+		if totalProcessed%ContextCheckInterval == 0 {
+			if ctx.Err() != nil {
+				upload.Progress.Phase = PhaseCancelled
+				upload.notifyProgress()
+				result.Error = "cancelled"
+				return result
+			}
+		}
+
+		row, err := csvReader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			// Log parse error and continue (lenient parsing)
+			failedRows = append(failedRows, FailedRow{
+				FileName:   fileName,
+				LineNumber: lineNum,
+				Reason:     fmt.Sprintf("CSV parse error: %v", err),
+			})
+			lineNum++
+			continue
+		}
+
+		processRow(row)
+		lineNum++
+
+		// Flush batch if full
+		if len(batch) >= BatchSize {
+			if err := flushBatch(); err != nil {
+				return result
+			}
+		}
+	}
+
+	// Flush any remaining rows in the batch
+	if err := flushBatch(); err != nil {
+		return result
+	}
+
+	// Commit transaction
+	if err := tx.Commit(ctx); err != nil {
+		result.Error = fmt.Sprintf("commit: %v", err)
+		upload.Progress.Phase = PhaseFailed
+		upload.Progress.Error = result.Error
+		upload.notifyProgress()
+		return result
+	}
+
+	// Log audit entry
+	var uploadIDStr string
+	if uploadID.Valid {
+		uploadIDStr = pgUUIDToString(uploadID)
+	}
+	s.LogAudit(ctx, AuditLogParams{
+		Action:       ActionUpload,
+		TableKey:     upload.TableKey,
+		UploadID:     uploadIDStr,
+		RowsAffected: result.Inserted,
+		IPAddress:    GetIPAddressFromContext(ctx),
+		UserAgent:    GetUserAgentFromContext(ctx),
+		Reason:       fmt.Sprintf("Uploaded %s", fileName),
+	})
+
+	// Update upload record with final counts
+	if uploadID.Valid {
+		updateParams := db.UpdateUploadCountsParams{
+			ID: uploadID,
+		}
+		updateParams.RowsInserted.Int32 = int32(result.Inserted)
+		updateParams.RowsInserted.Valid = true
+		updateParams.RowsSkipped.Int32 = int32(len(failedRows))
+		updateParams.RowsSkipped.Valid = true
+		updateParams.DurationMs.Int32 = int32(time.Since(startTime).Milliseconds())
+		updateParams.DurationMs.Valid = true
+		if err := db.New(s.pool).UpdateUploadCounts(ctx, updateParams); err != nil {
+			log.Printf("failed to update upload counts: %v", err)
+		}
+
+		// Store CSV headers for failed rows export
+		if len(csvHeaderRow) > 0 {
+			if err := db.New(s.pool).UpdateUploadHeaders(ctx, db.UpdateUploadHeadersParams{
+				ID:         uploadID,
+				CsvHeaders: csvHeaderRow,
+			}); err != nil {
+				log.Printf("failed to update upload headers: %v", err)
+			}
+		}
+
+		// Persist failed rows for later download
+		if len(failedRows) > 0 {
+			for _, fr := range failedRows {
+				if err := db.New(s.pool).InsertFailedRow(ctx, db.InsertFailedRowParams{
+					UploadID:   uploadID,
+					LineNumber: int32(fr.LineNumber),
+					Reason:     fr.Reason,
+					RowData:    fr.Data,
+				}); err != nil {
+					log.Printf("failed to insert failed row: %v", err)
+				}
+			}
+		}
+	}
+
+	result.TotalRows = totalProcessed
+	result.Skipped = len(failedRows)
+	result.FailedRows = failedRows
+	result.Duration = time.Since(startTime)
+
+	upload.Progress.Phase = PhaseComplete
+	upload.Progress.BytesRead = cr.total
+	upload.Progress.Inserted = result.Inserted
+	upload.Progress.Skipped = result.Skipped
+	upload.notifyProgress()
+
+	return result
 }

@@ -83,5 +83,27 @@ func registerAnrokTransactions() {
 		DeleteByUploadID: func(ctx context.Context, dbtx core.DBTX, uploadID pgtype.UUID) (int64, error) {
 			return db.New(dbtx).DeleteAnrokTransactionsByUploadId(ctx, uploadID)
 		},
+		// PostgreSQL COPY support: column order must match INSERT statement
+		CopyColumns: []string{
+			"transaction_id", "customer_id", "customer_name",
+			"overall_vat_id_status", "valid_vat_ids", "other_vat_ids",
+			"invoice_date", "tax_date", "transaction_currency",
+			"sales_amount", "exempt_reason", "tax_amount", "invoice_amount", "void",
+			"customer_address_line_1", "customer_address_city", "customer_address_region",
+			"customer_address_postal_code", "customer_address_country", "customer_country_code",
+			"jurisdictions", "jurisdiction_ids", "return_ids", "upload_id",
+		},
+		CopyRow: func(params any) []any {
+			p := params.(db.InsertAnrokTransactionParams)
+			return []any{
+				p.TransactionID, p.CustomerID, p.CustomerName,
+				p.OverallVatIDStatus, p.ValidVatIds, p.OtherVatIds,
+				p.InvoiceDate, p.TaxDate, p.TransactionCurrency,
+				p.SalesAmount, p.ExemptReason, p.TaxAmount, p.InvoiceAmount, p.Void,
+				p.CustomerAddressLine1, p.CustomerAddressCity, p.CustomerAddressRegion,
+				p.CustomerAddressPostalCode, p.CustomerAddressCountry, p.CustomerCountryCode,
+				p.Jurisdictions, p.JurisdictionIds, p.ReturnIds, p.UploadID,
+			}
+		},
 	})
 }

@@ -57,6 +57,18 @@ func registerNsCustomers() {
 		DeleteByUploadID: func(ctx context.Context, dbtx core.DBTX, uploadID pgtype.UUID) (int64, error) {
 			return db.New(dbtx).DeleteNsCustomersByUploadId(ctx, uploadID)
 		},
+		// PostgreSQL COPY support: column order must match INSERT statement
+		CopyColumns: []string{
+			"salesforce_id_io", "internal_id", "name", "duplicate", "company_name",
+			"balance", "unbilled_orders", "overdue_balance", "days_overdue", "upload_id",
+		},
+		CopyRow: func(params any) []any {
+			p := params.(db.InsertNsCustomerParams)
+			return []any{
+				p.SalesforceIDIo, p.InternalID, p.Name, p.Duplicate, p.CompanyName,
+				p.Balance, p.UnbilledOrders, p.OverdueBalance, p.DaysOverdue, p.UploadID,
+			}
+		},
 	})
 }
 
@@ -118,6 +130,22 @@ func registerNsSoDetail() {
 		},
 		DeleteByUploadID: func(ctx context.Context, dbtx core.DBTX, uploadID pgtype.UUID) (int64, error) {
 			return db.New(dbtx).DeleteNsSoDetailByUploadId(ctx, uploadID)
+		},
+		// PostgreSQL COPY support: column order must match INSERT statement
+		CopyColumns: []string{
+			"sfdc_opp_id", "sfdc_opp_line_id", "customer_internal_id", "product_internal_id",
+			"customer_project", "so_number", "document_date", "start_date", "end_date",
+			"item_name", "item_display_name", "line_start_date", "line_end_date",
+			"quantity", "unit_price", "amount_gross", "terms_days_till_net_due", "upload_id",
+		},
+		CopyRow: func(params any) []any {
+			p := params.(db.InsertNsSoDetailParams)
+			return []any{
+				p.SfdcOppID, p.SfdcOppLineID, p.CustomerInternalID, p.ProductInternalID,
+				p.CustomerProject, p.SoNumber, p.DocumentDate, p.StartDate, p.EndDate,
+				p.ItemName, p.ItemDisplayName, p.LineStartDate, p.LineEndDate,
+				p.Quantity, p.UnitPrice, p.AmountGross, p.TermsDaysTillNetDue, p.UploadID,
+			}
 		},
 	})
 }
@@ -190,6 +218,24 @@ func registerNsInvoiceDetail() {
 		},
 		DeleteByUploadID: func(ctx context.Context, dbtx core.DBTX, uploadID pgtype.UUID) (int64, error) {
 			return db.New(dbtx).DeleteNsInvoiceDetailByUploadId(ctx, uploadID)
+		},
+		// PostgreSQL COPY support: column order must match INSERT statement
+		CopyColumns: []string{
+			"sfdc_opp_id", "sfdc_opp_line_id", "sfdc_pricebook_id", "customer_internal_id", "product_internal_id",
+			"type", "date", "date_due", "document_number", "name", "memo", "item",
+			"qty", "contract_quantity", "unit_price", "amount",
+			"start_date_line", "end_date_line_level", "account",
+			"shipping_address_city", "shipping_address_state", "shipping_address_country", "upload_id",
+		},
+		CopyRow: func(params any) []any {
+			p := params.(db.InsertNsInvoiceDetailParams)
+			return []any{
+				p.SfdcOppID, p.SfdcOppLineID, p.SfdcPricebookID, p.CustomerInternalID, p.ProductInternalID,
+				p.Type, p.Date, p.DateDue, p.DocumentNumber, p.Name, p.Memo, p.Item,
+				p.Qty, p.ContractQuantity, p.UnitPrice, p.Amount,
+				p.StartDateLine, p.EndDateLineLevel, p.Account,
+				p.ShippingAddressCity, p.ShippingAddressState, p.ShippingAddressCountry, p.UploadID,
+			}
 		},
 	})
 }

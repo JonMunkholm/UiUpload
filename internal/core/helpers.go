@@ -111,3 +111,21 @@ func (w *WhereBuilder) AddUploadID(uploadID string) {
 	w.args = append(w.args, uploadID)
 	w.argIndex++
 }
+
+// Add adds a column = $N condition if the value is non-empty.
+// The column name is used directly (should be a valid SQL identifier).
+func (w *WhereBuilder) Add(column, value string) {
+	if value == "" {
+		return
+	}
+	w.conditions = append(w.conditions, fmt.Sprintf("%s = $%d", column, w.argIndex))
+	w.args = append(w.args, value)
+	w.argIndex++
+}
+
+// AddTimestampRange adds created_at BETWEEN conditions using $N placeholders.
+func (w *WhereBuilder) AddTimestampRange(column string, start, end interface{}) {
+	w.conditions = append(w.conditions, fmt.Sprintf("%s >= $%d AND %s <= $%d", column, w.argIndex, column, w.argIndex+1))
+	w.args = append(w.args, start, end)
+	w.argIndex += 2
+}

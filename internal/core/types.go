@@ -67,6 +67,11 @@ type ResetFunc func(ctx context.Context, db DBTX) error
 // DeleteByUploadIDFunc deletes rows by upload ID and returns the count deleted.
 type DeleteByUploadIDFunc func(ctx context.Context, db DBTX, uploadID pgtype.UUID) (int64, error)
 
+// CopyRowFunc converts params to a row of values for COPY protocol.
+// The returned slice must contain values in the same order as CopyColumns.
+// Each value should be a native Go type or pgtype (e.g., pgtype.Text, pgtype.Numeric).
+type CopyRowFunc func(params any) []any
+
 // TableDefinition contains everything needed to process a table.
 type TableDefinition struct {
 	Info             TableInfo
@@ -75,6 +80,24 @@ type TableDefinition struct {
 	Insert           InsertFunc
 	Reset            ResetFunc
 	DeleteByUploadID DeleteByUploadIDFunc // Deletes rows by upload_id for rollback
+
+	// Optional: PostgreSQL COPY protocol support (~10-100x faster than INSERT).
+	// If both CopyColumns and CopyRow are set, bulk inserts will use COPY.
+	// Falls back to Insert if either is nil or if COPY fails.
+	//
+	// CopyColumns must list database column names in the order that CopyRow
+	// returns values. Include upload_id if the table tracks uploads.
+	CopyColumns []string
+
+	// CopyRow converts the params struct (from BuildParams) to a row slice.
+	// Values must match the order of CopyColumns exactly.
+	CopyRow CopyRowFunc
+}
+
+// SupportsCopy returns true if the table has COPY protocol support configured.
+// When true, bulk inserts can use PostgreSQL COPY for ~10-100x faster performance.
+func (t TableDefinition) SupportsCopy() bool {
+	return len(t.CopyColumns) > 0 && t.CopyRow != nil
 }
 
 // UploadPhase indicates the current stage of upload processing.
@@ -101,14 +124,24 @@ type UploadProgress struct {
 	Inserted    int
 	Skipped     int
 	Error       string // Non-empty if Phase is PhaseFailed
+	// Byte-based progress for streaming (used when TotalRows is unknown).
+	// When streaming, TotalRows may be 0 and progress is calculated from bytes.
+	BytesRead  int64
+	BytesTotal int64
 }
 
 // Percent returns the progress as a percentage (0-100).
+// Uses row-based progress if TotalRows is known, otherwise falls back to byte-based.
 func (p UploadProgress) Percent() int {
-	if p.TotalRows == 0 {
-		return 0
+	// Prefer row-based progress when available
+	if p.TotalRows > 0 {
+		return (p.CurrentRow * 100) / p.TotalRows
 	}
-	return (p.CurrentRow * 100) / p.TotalRows
+	// Fall back to byte-based progress for streaming
+	if p.BytesTotal > 0 {
+		return int((p.BytesRead * 100) / p.BytesTotal)
+	}
+	return 0
 }
 
 // FailedRow contains information about a row that failed to insert.

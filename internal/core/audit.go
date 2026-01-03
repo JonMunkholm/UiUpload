@@ -3,12 +3,14 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/netip"
 	"time"
 
 	db "github.com/JonMunkholm/TUI/internal/database"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -167,105 +169,49 @@ func (s *Service) GetAuditLog(ctx context.Context, filter AuditLogFilter) ([]Aud
 		filter.Limit = DefaultHistoryLimit
 	}
 
-	startTime := pgtype.Timestamptz{Time: filter.StartTime, Valid: true}
-	endTime := pgtype.Timestamptz{Time: filter.EndTime, Valid: true}
+	// Build WHERE clause dynamically
+	wb := NewWhereBuilder()
+	wb.Add("action", string(filter.Action))
+	wb.Add("table_key", filter.TableKey)
+	wb.Add("severity", filter.Severity)
 
-	// Use far past/future if not specified
-	if filter.StartTime.IsZero() {
-		startTime = pgtype.Timestamptz{Time: time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC), Valid: true}
+	// Add time range (always applied)
+	startTime := filter.StartTime
+	if startTime.IsZero() {
+		startTime = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
 	}
-	if filter.EndTime.IsZero() {
-		endTime = pgtype.Timestamptz{Time: time.Now().Add(24 * time.Hour), Valid: true}
+	endTime := filter.EndTime
+	if endTime.IsZero() {
+		endTime = time.Now().Add(24 * time.Hour)
 	}
+	wb.AddTimestampRange("created_at", startTime, endTime)
 
-	var rows []db.AuditLog
-	var err error
+	whereClause, args := wb.Build()
 
-	hasAction := filter.Action != ""
-	hasTable := filter.TableKey != ""
-	hasSeverity := filter.Severity != ""
+	// Build complete query
+	query := `SELECT id, action, severity, table_key, user_id, user_email, user_name,
+		ip_address, user_agent, row_key, column_name, old_value, new_value,
+		row_data, rows_affected, upload_id, batch_id, related_audit_id, reason, created_at
+		FROM audit_log` + whereClause + ` ORDER BY created_at DESC LIMIT $` +
+		fmt.Sprintf("%d OFFSET $%d", wb.NextArgIndex(), wb.NextArgIndex()+1)
+	args = append(args, filter.Limit, filter.Offset)
 
-	switch {
-	case hasAction && hasTable && hasSeverity:
-		rows, err = db.New(s.pool).GetAuditLogByActionTableAndSeverity(ctx, db.GetAuditLogByActionTableAndSeverityParams{
-			Action:      string(filter.Action),
-			TableKey:    filter.TableKey,
-			Severity:    filter.Severity,
-			CreatedAt:   startTime,
-			CreatedAt_2: endTime,
-			Limit:       int32(filter.Limit),
-			Offset:      int32(filter.Offset),
-		})
-	case hasAction && hasTable:
-		rows, err = db.New(s.pool).GetAuditLogByActionAndTable(ctx, db.GetAuditLogByActionAndTableParams{
-			Action:      string(filter.Action),
-			TableKey:    filter.TableKey,
-			CreatedAt:   startTime,
-			CreatedAt_2: endTime,
-			Limit:       int32(filter.Limit),
-			Offset:      int32(filter.Offset),
-		})
-	case hasAction && hasSeverity:
-		rows, err = db.New(s.pool).GetAuditLogByActionAndSeverity(ctx, db.GetAuditLogByActionAndSeverityParams{
-			Action:      string(filter.Action),
-			Severity:    filter.Severity,
-			CreatedAt:   startTime,
-			CreatedAt_2: endTime,
-			Limit:       int32(filter.Limit),
-			Offset:      int32(filter.Offset),
-		})
-	case hasTable && hasSeverity:
-		rows, err = db.New(s.pool).GetAuditLogByTableAndSeverity(ctx, db.GetAuditLogByTableAndSeverityParams{
-			TableKey:    filter.TableKey,
-			Severity:    filter.Severity,
-			CreatedAt:   startTime,
-			CreatedAt_2: endTime,
-			Limit:       int32(filter.Limit),
-			Offset:      int32(filter.Offset),
-		})
-	case hasAction:
-		rows, err = db.New(s.pool).GetAuditLogByAction(ctx, db.GetAuditLogByActionParams{
-			Action:      string(filter.Action),
-			CreatedAt:   startTime,
-			CreatedAt_2: endTime,
-			Limit:       int32(filter.Limit),
-			Offset:      int32(filter.Offset),
-		})
-	case hasTable:
-		rows, err = db.New(s.pool).GetAuditLogByTable(ctx, db.GetAuditLogByTableParams{
-			TableKey:    filter.TableKey,
-			CreatedAt:   startTime,
-			CreatedAt_2: endTime,
-			Limit:       int32(filter.Limit),
-			Offset:      int32(filter.Offset),
-		})
-	case hasSeverity:
-		rows, err = db.New(s.pool).GetAuditLogBySeverity(ctx, db.GetAuditLogBySeverityParams{
-			Severity:    filter.Severity,
-			CreatedAt:   startTime,
-			CreatedAt_2: endTime,
-			Limit:       int32(filter.Limit),
-			Offset:      int32(filter.Offset),
-		})
-	default:
-		rows, err = db.New(s.pool).GetAuditLogAll(ctx, db.GetAuditLogAllParams{
-			CreatedAt:   startTime,
-			CreatedAt_2: endTime,
-			Limit:       int32(filter.Limit),
-			Offset:      int32(filter.Offset),
-		})
-	}
-
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	entries := make([]AuditEntry, 0, len(rows))
-	for _, row := range rows {
-		entries = append(entries, *dbAuditLogToEntry(row))
+	entries := make([]AuditEntry, 0)
+	for rows.Next() {
+		entry, err := scanAuditLogRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, *entry)
 	}
 
-	return entries, nil
+	return entries, rows.Err()
 }
 
 // ExportLimit is the maximum number of entries to export.
@@ -290,74 +236,28 @@ func (s *Service) GetAuditLogByID(ctx context.Context, id string) (*AuditEntry, 
 
 // CountAuditLog returns the total count of audit log entries matching the filter.
 func (s *Service) CountAuditLog(ctx context.Context, filter AuditLogFilter) (int64, error) {
-	startTime := pgtype.Timestamptz{Time: filter.StartTime, Valid: true}
-	endTime := pgtype.Timestamptz{Time: filter.EndTime, Valid: true}
+	// Build WHERE clause dynamically (same logic as GetAuditLog)
+	wb := NewWhereBuilder()
+	wb.Add("action", string(filter.Action))
+	wb.Add("table_key", filter.TableKey)
+	wb.Add("severity", filter.Severity)
 
-	if filter.StartTime.IsZero() {
-		startTime = pgtype.Timestamptz{Time: time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC), Valid: true}
+	startTime := filter.StartTime
+	if startTime.IsZero() {
+		startTime = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
 	}
-	if filter.EndTime.IsZero() {
-		endTime = pgtype.Timestamptz{Time: time.Now().Add(24 * time.Hour), Valid: true}
+	endTime := filter.EndTime
+	if endTime.IsZero() {
+		endTime = time.Now().Add(24 * time.Hour)
 	}
+	wb.AddTimestampRange("created_at", startTime, endTime)
 
-	hasAction := filter.Action != ""
-	hasTable := filter.TableKey != ""
-	hasSeverity := filter.Severity != ""
+	whereClause, args := wb.Build()
+	query := "SELECT COUNT(*) FROM audit_log" + whereClause
 
-	switch {
-	case hasAction && hasTable && hasSeverity:
-		return db.New(s.pool).CountAuditLogByActionTableAndSeverity(ctx, db.CountAuditLogByActionTableAndSeverityParams{
-			Action:      string(filter.Action),
-			TableKey:    filter.TableKey,
-			Severity:    filter.Severity,
-			CreatedAt:   startTime,
-			CreatedAt_2: endTime,
-		})
-	case hasAction && hasTable:
-		return db.New(s.pool).CountAuditLogByActionAndTable(ctx, db.CountAuditLogByActionAndTableParams{
-			Action:      string(filter.Action),
-			TableKey:    filter.TableKey,
-			CreatedAt:   startTime,
-			CreatedAt_2: endTime,
-		})
-	case hasAction && hasSeverity:
-		return db.New(s.pool).CountAuditLogByActionAndSeverity(ctx, db.CountAuditLogByActionAndSeverityParams{
-			Action:      string(filter.Action),
-			Severity:    filter.Severity,
-			CreatedAt:   startTime,
-			CreatedAt_2: endTime,
-		})
-	case hasTable && hasSeverity:
-		return db.New(s.pool).CountAuditLogByTableAndSeverity(ctx, db.CountAuditLogByTableAndSeverityParams{
-			TableKey:    filter.TableKey,
-			Severity:    filter.Severity,
-			CreatedAt:   startTime,
-			CreatedAt_2: endTime,
-		})
-	case hasAction:
-		return db.New(s.pool).CountAuditLogByAction(ctx, db.CountAuditLogByActionParams{
-			Action:      string(filter.Action),
-			CreatedAt:   startTime,
-			CreatedAt_2: endTime,
-		})
-	case hasTable:
-		return db.New(s.pool).CountAuditLogByTable(ctx, db.CountAuditLogByTableParams{
-			TableKey:    filter.TableKey,
-			CreatedAt:   startTime,
-			CreatedAt_2: endTime,
-		})
-	case hasSeverity:
-		return db.New(s.pool).CountAuditLogBySeverity(ctx, db.CountAuditLogBySeverityParams{
-			Severity:    filter.Severity,
-			CreatedAt:   startTime,
-			CreatedAt_2: endTime,
-		})
-	default:
-		return db.New(s.pool).CountAuditLogAll(ctx, db.CountAuditLogAllParams{
-			CreatedAt:   startTime,
-			CreatedAt_2: endTime,
-		})
-	}
+	var count int64
+	err := s.pool.QueryRow(ctx, query, args...).Scan(&count)
+	return count, err
 }
 
 // GetAuditLogArchive retrieves archived audit log entries.
@@ -458,6 +358,97 @@ func pgUUIDToString(u pgtype.UUID) string {
 	return uuidToString(u)
 }
 
+// scanAuditLogRow scans a single row from audit_log or audit_log_archive into an AuditEntry.
+// Column order must match: id, action, severity, table_key, user_id, user_email, user_name,
+// ip_address, user_agent, row_key, column_name, old_value, new_value, row_data, rows_affected,
+// upload_id, batch_id, related_audit_id, reason, created_at
+func scanAuditLogRow(rows pgx.Rows) (*AuditEntry, error) {
+	var (
+		id             pgtype.UUID
+		action         string
+		severity       string
+		tableKey       string
+		userID         pgtype.Text
+		userEmail      pgtype.Text
+		userName       pgtype.Text
+		ipAddress      *netip.Addr
+		userAgent      pgtype.Text
+		rowKey         pgtype.Text
+		columnName     pgtype.Text
+		oldValue       pgtype.Text
+		newValue       pgtype.Text
+		rowData        []byte
+		rowsAffected   pgtype.Int4
+		uploadID       pgtype.UUID
+		batchID        pgtype.UUID
+		relatedAuditID pgtype.UUID
+		reason         pgtype.Text
+		createdAt      pgtype.Timestamptz
+	)
+
+	err := rows.Scan(
+		&id, &action, &severity, &tableKey,
+		&userID, &userEmail, &userName, &ipAddress, &userAgent,
+		&rowKey, &columnName, &oldValue, &newValue, &rowData, &rowsAffected,
+		&uploadID, &batchID, &relatedAuditID, &reason, &createdAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	entry := &AuditEntry{
+		ID:        uuidToString(id),
+		Action:    AuditAction(action),
+		Severity:  AuditSeverity(severity),
+		TableKey:  tableKey,
+		CreatedAt: createdAt.Time,
+	}
+
+	if userID.Valid {
+		entry.UserID = userID.String
+	}
+	if userEmail.Valid {
+		entry.UserEmail = userEmail.String
+	}
+	if userName.Valid {
+		entry.UserName = userName.String
+	}
+	if ipAddress != nil {
+		entry.IPAddress = ipAddress.String()
+	}
+	if userAgent.Valid {
+		entry.UserAgent = userAgent.String
+	}
+	if rowKey.Valid {
+		entry.RowKey = rowKey.String
+	}
+	if columnName.Valid {
+		entry.ColumnName = columnName.String
+	}
+	if oldValue.Valid {
+		entry.OldValue = oldValue.String
+	}
+	if newValue.Valid {
+		entry.NewValue = newValue.String
+	}
+	if rowData != nil {
+		_ = json.Unmarshal(rowData, &entry.RowData)
+	}
+	if rowsAffected.Valid {
+		entry.RowsAffected = int(rowsAffected.Int32)
+	}
+	entry.UploadID = uuidToString(uploadID)
+	entry.BatchID = uuidToString(batchID)
+	entry.RelatedAuditID = uuidToString(relatedAuditID)
+	if reason.Valid {
+		entry.Reason = reason.String
+	}
+
+	return entry, nil
+}
+
+// dbAuditLogToEntry converts a db.AuditLog to an AuditEntry.
+// Used by sqlc-generated queries that return db.AuditLog.
 func dbAuditLogToEntry(row db.AuditLog) *AuditEntry {
 	entry := &AuditEntry{
 		ID:        uuidToString(row.ID),
@@ -466,50 +457,14 @@ func dbAuditLogToEntry(row db.AuditLog) *AuditEntry {
 		TableKey:  row.TableKey,
 		CreatedAt: row.CreatedAt.Time,
 	}
-
-	if row.UserID.Valid {
-		entry.UserID = row.UserID.String
-	}
-	if row.UserEmail.Valid {
-		entry.UserEmail = row.UserEmail.String
-	}
-	if row.UserName.Valid {
-		entry.UserName = row.UserName.String
-	}
-	if row.IpAddress != nil {
-		entry.IPAddress = row.IpAddress.String()
-	}
-	if row.UserAgent.Valid {
-		entry.UserAgent = row.UserAgent.String
-	}
-	if row.RowKey.Valid {
-		entry.RowKey = row.RowKey.String
-	}
-	if row.ColumnName.Valid {
-		entry.ColumnName = row.ColumnName.String
-	}
-	if row.OldValue.Valid {
-		entry.OldValue = row.OldValue.String
-	}
-	if row.NewValue.Valid {
-		entry.NewValue = row.NewValue.String
-	}
-	if row.RowData != nil {
-		_ = json.Unmarshal(row.RowData, &entry.RowData)
-	}
-	if row.RowsAffected.Valid {
-		entry.RowsAffected = int(row.RowsAffected.Int32)
-	}
-	entry.UploadID = uuidToString(row.UploadID)
-	entry.BatchID = uuidToString(row.BatchID)
-	entry.RelatedAuditID = uuidToString(row.RelatedAuditID)
-	if row.Reason.Valid {
-		entry.Reason = row.Reason.String
-	}
-
+	populateOptionalFields(entry, row.UserID, row.UserEmail, row.UserName, row.IpAddress,
+		row.UserAgent, row.RowKey, row.ColumnName, row.OldValue, row.NewValue,
+		row.RowData, row.RowsAffected, row.UploadID, row.BatchID, row.RelatedAuditID, row.Reason)
 	return entry
 }
 
+// dbAuditLogArchiveToEntry converts a db.AuditLogArchive to an AuditEntry.
+// Used by sqlc-generated queries that return db.AuditLogArchive.
 func dbAuditLogArchiveToEntry(row db.AuditLogArchive) *AuditEntry {
 	entry := &AuditEntry{
 		ID:        uuidToString(row.ID),
@@ -518,46 +473,60 @@ func dbAuditLogArchiveToEntry(row db.AuditLogArchive) *AuditEntry {
 		TableKey:  row.TableKey,
 		CreatedAt: row.CreatedAt.Time,
 	}
-
-	if row.UserID.Valid {
-		entry.UserID = row.UserID.String
-	}
-	if row.UserEmail.Valid {
-		entry.UserEmail = row.UserEmail.String
-	}
-	if row.UserName.Valid {
-		entry.UserName = row.UserName.String
-	}
-	if row.IpAddress != nil {
-		entry.IPAddress = row.IpAddress.String()
-	}
-	if row.UserAgent.Valid {
-		entry.UserAgent = row.UserAgent.String
-	}
-	if row.RowKey.Valid {
-		entry.RowKey = row.RowKey.String
-	}
-	if row.ColumnName.Valid {
-		entry.ColumnName = row.ColumnName.String
-	}
-	if row.OldValue.Valid {
-		entry.OldValue = row.OldValue.String
-	}
-	if row.NewValue.Valid {
-		entry.NewValue = row.NewValue.String
-	}
-	if row.RowData != nil {
-		_ = json.Unmarshal(row.RowData, &entry.RowData)
-	}
-	if row.RowsAffected.Valid {
-		entry.RowsAffected = int(row.RowsAffected.Int32)
-	}
-	entry.UploadID = uuidToString(row.UploadID)
-	entry.BatchID = uuidToString(row.BatchID)
-	entry.RelatedAuditID = uuidToString(row.RelatedAuditID)
-	if row.Reason.Valid {
-		entry.Reason = row.Reason.String
-	}
-
+	populateOptionalFields(entry, row.UserID, row.UserEmail, row.UserName, row.IpAddress,
+		row.UserAgent, row.RowKey, row.ColumnName, row.OldValue, row.NewValue,
+		row.RowData, row.RowsAffected, row.UploadID, row.BatchID, row.RelatedAuditID, row.Reason)
 	return entry
+}
+
+// populateOptionalFields fills in optional fields on an AuditEntry.
+// This extracts common logic from dbAuditLogToEntry and dbAuditLogArchiveToEntry.
+func populateOptionalFields(entry *AuditEntry,
+	userID, userEmail, userName pgtype.Text,
+	ipAddress *netip.Addr,
+	userAgent, rowKey, columnName, oldValue, newValue pgtype.Text,
+	rowData []byte,
+	rowsAffected pgtype.Int4,
+	uploadID, batchID, relatedAuditID pgtype.UUID,
+	reason pgtype.Text,
+) {
+	if userID.Valid {
+		entry.UserID = userID.String
+	}
+	if userEmail.Valid {
+		entry.UserEmail = userEmail.String
+	}
+	if userName.Valid {
+		entry.UserName = userName.String
+	}
+	if ipAddress != nil {
+		entry.IPAddress = ipAddress.String()
+	}
+	if userAgent.Valid {
+		entry.UserAgent = userAgent.String
+	}
+	if rowKey.Valid {
+		entry.RowKey = rowKey.String
+	}
+	if columnName.Valid {
+		entry.ColumnName = columnName.String
+	}
+	if oldValue.Valid {
+		entry.OldValue = oldValue.String
+	}
+	if newValue.Valid {
+		entry.NewValue = newValue.String
+	}
+	if rowData != nil {
+		_ = json.Unmarshal(rowData, &entry.RowData)
+	}
+	if rowsAffected.Valid {
+		entry.RowsAffected = int(rowsAffected.Int32)
+	}
+	entry.UploadID = uuidToString(uploadID)
+	entry.BatchID = uuidToString(batchID)
+	entry.RelatedAuditID = uuidToString(relatedAuditID)
+	if reason.Valid {
+		entry.Reason = reason.String
+	}
 }
