@@ -471,6 +471,181 @@ func (s *Service) GetFailedRows(ctx context.Context, uploadID string) ([]FailedR
 	return result, nil
 }
 
+// UploadDetail contains full details about an upload.
+type UploadDetail struct {
+	ID           string
+	TableKey     string
+	FileName     string
+	RowsInserted int
+	RowsSkipped  int
+	DurationMs   int
+	Status       string
+	CsvHeaders   []string
+	UploadedAt   time.Time
+}
+
+// GetUploadDetail returns full details about an upload.
+func (s *Service) GetUploadDetail(ctx context.Context, uploadID string) (*UploadDetail, error) {
+	var pgUUID pgtype.UUID
+	if err := pgUUID.Scan(uploadID); err != nil {
+		return nil, fmt.Errorf("invalid upload ID: %w", err)
+	}
+
+	upload, err := db.New(s.pool).GetUploadById(ctx, pgUUID)
+	if err != nil {
+		return nil, fmt.Errorf("upload not found: %w", err)
+	}
+
+	return &UploadDetail{
+		ID:           uploadID,
+		TableKey:     upload.Name,
+		FileName:     upload.FileName.String,
+		RowsInserted: int(upload.RowsInserted.Int32),
+		RowsSkipped:  int(upload.RowsSkipped.Int32),
+		DurationMs:   int(upload.DurationMs.Int32),
+		Status:       upload.Status.String,
+		CsvHeaders:   upload.CsvHeaders,
+		UploadedAt:   upload.UploadedAt.Time,
+	}, nil
+}
+
+// UploadRowsResult contains paginated rows for an upload.
+type UploadRowsResult struct {
+	Rows       []map[string]interface{}
+	TotalRows  int64
+	Page       int
+	PageSize   int
+	TotalPages int
+}
+
+// GetUploadInsertedRows returns paginated rows inserted by a specific upload.
+func (s *Service) GetUploadInsertedRows(ctx context.Context, uploadID, tableKey string, page, pageSize int) (*UploadRowsResult, error) {
+	def, ok := Get(tableKey)
+	if !ok {
+		return nil, fmt.Errorf("unknown table: %s", tableKey)
+	}
+
+	// Build column mappings
+	displayColumns := def.Info.Columns
+	dbColumns := resolveDBColumns(displayColumns, def.FieldSpecs)
+	quotedCols := quoteColumns(dbColumns)
+
+	// Build WHERE clause for upload_id
+	wb := NewWhereBuilder()
+	wb.AddUploadID(uploadID)
+	whereClause, queryArgs := wb.Build()
+
+	// Get total count
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s%s", quoteIdentifier(tableKey), whereClause)
+	var totalRows int64
+	err := s.pool.QueryRow(ctx, countQuery, queryArgs...).Scan(&totalRows)
+	if err != nil {
+		return nil, fmt.Errorf("count rows: %w", err)
+	}
+
+	// Calculate pagination
+	if page < 1 {
+		page = 1
+	}
+	totalPages := int((totalRows + int64(pageSize) - 1) / int64(pageSize))
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+	offset := (page - 1) * pageSize
+
+	// Build SELECT query
+	argIndex := wb.NextArgIndex()
+	query := fmt.Sprintf(
+		"SELECT %s FROM %s%s ORDER BY %s LIMIT $%d OFFSET $%d",
+		strings.Join(quotedCols, ", "),
+		quoteIdentifier(tableKey),
+		whereClause,
+		quoteIdentifier(dbColumns[0]),
+		argIndex,
+		argIndex+1,
+	)
+	queryArgs = append(queryArgs, pageSize, offset)
+
+	// Execute query
+	rows, err := s.pool.Query(ctx, query, queryArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("query rows: %w", err)
+	}
+	defer rows.Close()
+
+	// Process rows
+	result := &UploadRowsResult{
+		Rows:       make([]map[string]interface{}, 0),
+		TotalRows:  totalRows,
+		Page:       page,
+		PageSize:   pageSize,
+		TotalPages: totalPages,
+	}
+
+	for rows.Next() {
+		values, err := rows.Values()
+		if err != nil {
+			return nil, fmt.Errorf("scan row: %w", err)
+		}
+
+		rowMap := make(map[string]interface{})
+		for i, col := range displayColumns {
+			if i < len(values) {
+				rowMap[col] = values[i]
+			}
+		}
+		result.Rows = append(result.Rows, rowMap)
+	}
+
+	return result, nil
+}
+
+// FailedRowDetail contains details about a failed row.
+type FailedRowDetail struct {
+	LineNumber int
+	Reason     string
+	RowData    []string
+}
+
+// GetUploadFailedRowsPaginated returns paginated failed rows for an upload.
+func (s *Service) GetUploadFailedRowsPaginated(ctx context.Context, uploadID string, page, pageSize int) ([]FailedRowDetail, int64, error) {
+	var pgUUID pgtype.UUID
+	if err := pgUUID.Scan(uploadID); err != nil {
+		return nil, 0, fmt.Errorf("invalid upload ID: %w", err)
+	}
+
+	// Get total count
+	count, err := db.New(s.pool).CountFailedRowsByUploadId(ctx, pgUUID)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Get paginated rows
+	offset := (page - 1) * pageSize
+	rows, err := db.New(s.pool).GetFailedRowsByUploadIdPaginated(ctx, db.GetFailedRowsByUploadIdPaginatedParams{
+		UploadID: pgUUID,
+		Limit:    int32(pageSize),
+		Offset:   int32(offset),
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	result := make([]FailedRowDetail, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, FailedRowDetail{
+			LineNumber: int(row.LineNumber),
+			Reason:     row.Reason,
+			RowData:    row.RowData,
+		})
+	}
+
+	return result, count, nil
+}
+
 // RollbackUpload deletes all rows that were inserted from a specific upload.
 func (s *Service) RollbackUpload(ctx context.Context, uploadID string) (RollbackResult, error) {
 	result := RollbackResult{

@@ -334,11 +334,16 @@ templ AuditEntryDetail(entry core.AuditEntry) {
 				<span>{ entry.Reason }</span>
 			</div>
 		}
-		<!-- Upload ID -->
+		<!-- Upload ID with link -->
 		if entry.UploadID != "" {
-			<div class="text-gray-600 dark:text-gray-300">
-				<span class="text-gray-400">Upload ID:</span>
-				<span class="font-mono text-xs">{ entry.UploadID }</span>
+			<div class="text-gray-600 dark:text-gray-300 flex items-center gap-2">
+				<span class="text-gray-400">Upload:</span>
+				<a
+					href={ templ.SafeURL("/upload/" + entry.UploadID) }
+					class="text-blue-600 hover:text-blue-800 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+				>
+					View Upload Details
+				</a>
 			</div>
 		}
 	</div>

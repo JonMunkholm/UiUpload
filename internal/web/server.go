@@ -59,6 +59,7 @@ func (s *Server) setupRoutes() {
 	// Pages
 	s.router.Get("/", s.handleDashboard)
 	s.router.Get("/table/{tableKey}", s.handleTableView)
+	s.router.Get("/upload/{uploadID}", s.handleUploadDetail)
 	s.router.Get("/audit-log", s.handleAuditLog)
 
 	// API routes

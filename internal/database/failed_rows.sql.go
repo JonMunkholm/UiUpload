@@ -65,6 +65,47 @@ func (q *Queries) GetFailedRowsByUploadId(ctx context.Context, uploadID pgtype.U
 	return items, nil
 }
 
+const getFailedRowsByUploadIdPaginated = `-- name: GetFailedRowsByUploadIdPaginated :many
+SELECT id, upload_id, line_number, reason, row_data, created_at
+FROM upload_failed_rows
+WHERE upload_id = $1
+ORDER BY line_number
+LIMIT $2 OFFSET $3
+`
+
+type GetFailedRowsByUploadIdPaginatedParams struct {
+	UploadID pgtype.UUID `json:"upload_id"`
+	Limit    int32       `json:"limit"`
+	Offset   int32       `json:"offset"`
+}
+
+func (q *Queries) GetFailedRowsByUploadIdPaginated(ctx context.Context, arg GetFailedRowsByUploadIdPaginatedParams) ([]UploadFailedRow, error) {
+	rows, err := q.db.Query(ctx, getFailedRowsByUploadIdPaginated, arg.UploadID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []UploadFailedRow{}
+	for rows.Next() {
+		var i UploadFailedRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UploadID,
+			&i.LineNumber,
+			&i.Reason,
+			&i.RowData,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertFailedRow = `-- name: InsertFailedRow :exec
 INSERT INTO upload_failed_rows (upload_id, line_number, reason, row_data)
 VALUES ($1, $2, $3, $4)

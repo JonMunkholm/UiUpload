@@ -101,3 +101,13 @@ func (w *WhereBuilder) Args() []interface{} {
 func (w *WhereBuilder) NextArgIndex() int {
 	return w.argIndex
 }
+
+// AddUploadID adds an upload_id = $N condition.
+func (w *WhereBuilder) AddUploadID(uploadID string) {
+	if uploadID == "" {
+		return
+	}
+	w.conditions = append(w.conditions, fmt.Sprintf("upload_id = $%d", w.argIndex))
+	w.args = append(w.args, uploadID)
+	w.argIndex++
+}

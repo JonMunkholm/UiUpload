@@ -1250,3 +1250,73 @@ func (s *Server) handleAuditLogExport(w http.ResponseWriter, r *http.Request) {
 
 	csvWriter.Flush()
 }
+
+// handleUploadDetail renders the upload detail page showing inserted/skipped rows.
+func (s *Server) handleUploadDetail(w http.ResponseWriter, r *http.Request) {
+	uploadID := chi.URLParam(r, "uploadID")
+	if uploadID == "" {
+		writeError(w, http.StatusBadRequest, "missing upload ID")
+		return
+	}
+
+	// Get upload details
+	upload, err := s.service.GetUploadDetail(r.Context(), uploadID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "upload not found")
+		return
+	}
+
+	// Get table definition for column names
+	def, ok := core.Get(upload.TableKey)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "unknown table")
+		return
+	}
+
+	// Parse query params
+	status := r.URL.Query().Get("status") // "all", "inserted", "skipped"
+	if status == "" {
+		status = "inserted"
+	}
+	page := parseIntParam(r, "page", 1)
+	pageSize := 50
+
+	// Build view params
+	params := templates.UploadDetailParams{
+		Upload:     upload,
+		Columns:    def.Info.Columns,
+		CsvHeaders: upload.CsvHeaders,
+		Status:     status,
+		Page:       page,
+		PageSize:   pageSize,
+	}
+
+	// Fetch rows based on status filter
+	switch status {
+	case "skipped":
+		failedRows, totalFailed, err := s.service.GetUploadFailedRowsPaginated(r.Context(), uploadID, page, pageSize)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		params.FailedRows = failedRows
+		params.TotalRows = totalFailed
+		params.TotalPages = int((totalFailed + int64(pageSize) - 1) / int64(pageSize))
+	default: // "inserted" or "all"
+		result, err := s.service.GetUploadInsertedRows(r.Context(), uploadID, upload.TableKey, page, pageSize)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		params.Rows = result.Rows
+		params.TotalRows = result.TotalRows
+		params.TotalPages = result.TotalPages
+	}
+
+	// Render
+	if r.Header.Get("HX-Request") == "true" {
+		templates.UploadDetailPartial(params).Render(r.Context(), w)
+	} else {
+		templates.UploadDetailPage(params).Render(r.Context(), w)
+	}
+}
