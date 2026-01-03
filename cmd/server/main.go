@@ -81,6 +81,17 @@ func main() {
 	// Create and start server
 	server := web.NewServer(service)
 
+	// Create cancellable context for background jobs
+	jobCtx, cancelJobs := context.WithCancel(context.Background())
+
+	// Start archive scheduler
+	go service.StartArchiveScheduler(jobCtx, core.ArchiveConfig{
+		HotRetentionDays:      90,
+		ArchiveRetentionYears: 7,
+		BatchSize:             5000,
+		CheckInterval:         24 * time.Hour,
+	})
+
 	// Graceful shutdown
 	go func() {
 		sigCh := make(chan os.Signal, 1)
@@ -88,6 +99,10 @@ func main() {
 		<-sigCh
 
 		log.Println("Shutting down...")
+
+		// Stop background jobs
+		cancelJobs()
+
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 

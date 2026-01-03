@@ -99,3 +99,9 @@ WHERE action = $1
   AND table_key = $2
   AND created_at >= $3
   AND created_at <= $4;
+
+-- name: ArchiveOldAuditLogs :one
+SELECT archive_audit_log($1::INTEGER, $2::INTEGER) AS archived_count;
+
+-- name: PurgeOldArchives :one
+SELECT purge_old_archives($1::INTEGER) AS deleted_count;

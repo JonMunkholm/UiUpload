@@ -12,6 +12,22 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const archiveOldAuditLogs = `-- name: ArchiveOldAuditLogs :one
+SELECT archive_audit_log($1::INTEGER, $2::INTEGER) AS archived_count
+`
+
+type ArchiveOldAuditLogsParams struct {
+	Column1 int32 `json:"column_1"`
+	Column2 int32 `json:"column_2"`
+}
+
+func (q *Queries) ArchiveOldAuditLogs(ctx context.Context, arg ArchiveOldAuditLogsParams) (int32, error) {
+	row := q.db.QueryRow(ctx, archiveOldAuditLogs, arg.Column1, arg.Column2)
+	var archived_count int32
+	err := row.Scan(&archived_count)
+	return archived_count, err
+}
+
 const countAuditLogAll = `-- name: CountAuditLogAll :one
 SELECT COUNT(*) FROM audit_log
 WHERE created_at >= $1
@@ -634,4 +650,15 @@ func (q *Queries) InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) 
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const purgeOldArchives = `-- name: PurgeOldArchives :one
+SELECT purge_old_archives($1::INTEGER) AS deleted_count
+`
+
+func (q *Queries) PurgeOldArchives(ctx context.Context, dollar_1 int32) (int32, error) {
+	row := q.db.QueryRow(ctx, purgeOldArchives, dollar_1)
+	var deleted_count int32
+	err := row.Scan(&deleted_count)
+	return deleted_count, err
 }
