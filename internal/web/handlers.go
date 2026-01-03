@@ -1181,3 +1181,72 @@ func (s *Server) handleAuditLogEntry(w http.ResponseWriter, r *http.Request) {
 
 	templates.AuditEntryDetail(*entry).Render(r.Context(), w)
 }
+
+// handleAuditLogExport exports audit log entries as a CSV file.
+func (s *Server) handleAuditLogExport(w http.ResponseWriter, r *http.Request) {
+	// Parse filters (same as handleAuditLog)
+	filter := core.AuditLogFilter{
+		TableKey: r.URL.Query().Get("table"),
+		Action:   core.AuditAction(r.URL.Query().Get("action")),
+		Severity: r.URL.Query().Get("severity"),
+	}
+
+	// Parse date filters
+	if from := r.URL.Query().Get("from"); from != "" {
+		if t, err := time.Parse("2006-01-02", from); err == nil {
+			filter.StartTime = t
+		}
+	}
+	if to := r.URL.Query().Get("to"); to != "" {
+		if t, err := time.Parse("2006-01-02", to); err == nil {
+			filter.EndTime = t.Add(24*time.Hour - time.Second)
+		}
+	}
+
+	// Fetch all matching entries
+	entries, err := s.service.GetAuditLogForExport(r.Context(), filter)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Set CSV download headers
+	timestamp := time.Now().Format("20060102_150405")
+	filename := fmt.Sprintf("audit_log_%s.csv", timestamp)
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+
+	// Write CSV
+	csvWriter := csv.NewWriter(w)
+
+	// Header row
+	csvWriter.Write([]string{
+		"ID", "Timestamp", "Action", "Severity", "Table",
+		"User Email", "User Name", "IP Address",
+		"Row Key", "Column", "Old Value", "New Value",
+		"Rows Affected", "Upload ID", "Reason",
+	})
+
+	// Data rows
+	for _, e := range entries {
+		csvWriter.Write([]string{
+			e.ID,
+			e.CreatedAt.Format("2006-01-02 15:04:05"),
+			string(e.Action),
+			string(e.Severity),
+			e.TableKey,
+			e.UserEmail,
+			e.UserName,
+			e.IPAddress,
+			e.RowKey,
+			e.ColumnName,
+			e.OldValue,
+			e.NewValue,
+			fmt.Sprintf("%d", e.RowsAffected),
+			e.UploadID,
+			e.Reason,
+		})
+	}
+
+	csvWriter.Flush()
+}

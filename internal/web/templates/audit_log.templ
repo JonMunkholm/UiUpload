@@ -48,6 +48,27 @@ func (p AuditLogViewParams) BuildFilterURL(page int) string {
 	return strings.Join(parts, "&")
 }
 
+// BuildExportURL constructs the CSV export URL with current filters
+func (p AuditLogViewParams) BuildExportURL() string {
+	parts := []string{"/api/audit-log/export?"}
+	if p.Filter.Action != "" {
+		parts = append(parts, fmt.Sprintf("action=%s", p.Filter.Action))
+	}
+	if p.Filter.TableKey != "" {
+		parts = append(parts, fmt.Sprintf("table=%s", p.Filter.TableKey))
+	}
+	if p.Filter.Severity != "" {
+		parts = append(parts, fmt.Sprintf("severity=%s", p.Filter.Severity))
+	}
+	if p.Filter.StartDate != "" {
+		parts = append(parts, fmt.Sprintf("from=%s", p.Filter.StartDate))
+	}
+	if p.Filter.EndDate != "" {
+		parts = append(parts, fmt.Sprintf("to=%s", p.Filter.EndDate))
+	}
+	return strings.Join(parts, "&")
+}
+
 // AuditLogPage renders the full audit log page with layout
 templ AuditLogPage(params AuditLogViewParams) {
 	@Layout("Audit Log") {
@@ -170,6 +191,15 @@ templ AuditLogFilters(params AuditLogViewParams) {
 				class="px-4 py-2 text-gray-600 dark:text-gray-300 text-sm font-medium rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
 			>
 				Clear
+			</a>
+			<a
+				href={ templ.SafeURL(params.BuildExportURL()) }
+				class="ml-auto px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 inline-flex items-center gap-2"
+			>
+				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+				</svg>
+				Export CSV
 			</a>
 		</div>
 	</form>

@@ -98,6 +98,7 @@ func (s *Server) setupRoutes() {
 		r.Post("/bulk-edit/{tableKey}", s.handleBulkEdit)
 
 		// Audit log
+		r.Get("/audit-log/export", s.handleAuditLogExport)
 		r.Get("/audit-log/{id}", s.handleAuditLogEntry)
 
 		// Import templates

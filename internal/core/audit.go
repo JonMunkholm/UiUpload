@@ -268,6 +268,16 @@ func (s *Service) GetAuditLog(ctx context.Context, filter AuditLogFilter) ([]Aud
 	return entries, nil
 }
 
+// ExportLimit is the maximum number of entries to export.
+const ExportLimit = 100000
+
+// GetAuditLogForExport retrieves audit log entries for CSV export (no pagination).
+func (s *Service) GetAuditLogForExport(ctx context.Context, filter AuditLogFilter) ([]AuditEntry, error) {
+	filter.Limit = ExportLimit
+	filter.Offset = 0
+	return s.GetAuditLog(ctx, filter)
+}
+
 // GetAuditLogByID retrieves a single audit log entry by ID.
 func (s *Service) GetAuditLogByID(ctx context.Context, id string) (*AuditEntry, error) {
 	pgUUID := toPgUUID(id)
