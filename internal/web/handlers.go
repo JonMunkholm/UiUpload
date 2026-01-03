@@ -413,11 +413,6 @@ func (s *Server) handleExportFailedRows(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if len(failedRows) == 0 {
-		writeError(w, http.StatusNotFound, "no failed rows found")
-		return
-	}
-
 	// Set CSV download headers
 	timestamp := time.Now().Format("20060102_150405")
 	filename := fmt.Sprintf("failed_rows_%s.csv", timestamp)
