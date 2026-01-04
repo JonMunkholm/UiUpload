@@ -12,6 +12,109 @@
         @apply px-4 py-2 rounded font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-gray-900;
     }
 
+    /* ========================================================================
+       HTMX Loading States
+       ======================================================================== */
+
+    /* Loading indicator - hidden by default, shown during HTMX requests */
+    .loading-indicator {
+        @apply hidden;
+    }
+
+    .htmx-request .loading-indicator {
+        @apply flex;
+    }
+
+    /* Hide button text during loading */
+    .htmx-request .btn-text {
+        @apply opacity-50;
+    }
+
+    /* Dim content during loading - use on containers that update */
+    .htmx-request.loading-dim,
+    .htmx-request .loading-dim {
+        @apply opacity-60 pointer-events-none;
+    }
+
+    /* Add aria-busy attribute during requests for accessibility */
+    .htmx-request {
+        cursor: wait;
+    }
+
+    /* Spinner animation */
+    .spinner {
+        @apply w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin;
+    }
+
+    .spinner-sm {
+        @apply w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin;
+    }
+
+    .spinner-lg {
+        @apply w-8 h-8 border-3 border-current border-t-transparent rounded-full animate-spin;
+    }
+
+    /* Skeleton loading animation for placeholder content */
+    .skeleton {
+        @apply bg-gray-200 dark:bg-gray-700 rounded;
+        background: linear-gradient(
+            90deg,
+            theme('colors.gray.200') 25%,
+            theme('colors.gray.300') 50%,
+            theme('colors.gray.200') 75%
+        );
+        background-size: 200% 100%;
+        animation: skeleton-shimmer 1.5s ease-in-out infinite;
+    }
+
+    .dark .skeleton {
+        background: linear-gradient(
+            90deg,
+            theme('colors.gray.700') 25%,
+            theme('colors.gray.600') 50%,
+            theme('colors.gray.700') 75%
+        );
+        background-size: 200% 100%;
+    }
+
+    @keyframes skeleton-shimmer {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
+
+    /* Skeleton text block - mimics a line of text */
+    .skeleton-text {
+        @apply h-4 rounded bg-gray-200 dark:bg-gray-700;
+        background: linear-gradient(90deg, theme('colors.gray.200') 25%, theme('colors.gray.300') 50%, theme('colors.gray.200') 75%);
+        background-size: 200% 100%;
+        animation: skeleton-shimmer 1.5s ease-in-out infinite;
+    }
+
+    .skeleton-text-sm {
+        @apply h-3 rounded bg-gray-200 dark:bg-gray-700;
+        background: linear-gradient(90deg, theme('colors.gray.200') 25%, theme('colors.gray.300') 50%, theme('colors.gray.200') 75%);
+        background-size: 200% 100%;
+        animation: skeleton-shimmer 1.5s ease-in-out infinite;
+    }
+
+    /* Skeleton cell for table cells */
+    .skeleton-cell {
+        @apply h-4 w-3/4 rounded bg-gray-200 dark:bg-gray-700;
+        background: linear-gradient(90deg, theme('colors.gray.200') 25%, theme('colors.gray.300') 50%, theme('colors.gray.200') 75%);
+        background-size: 200% 100%;
+        animation: skeleton-shimmer 1.5s ease-in-out infinite;
+    }
+
+    /* Pulse animation for loading states */
+    .loading-pulse {
+        animation: loading-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+
+    @keyframes loading-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+
     .upload-zone {
         @apply border-2 border-dashed border-gray-300 rounded-lg p-8 text-center
                transition-all duration-200 cursor-pointer
@@ -44,5 +147,132 @@
     .tooltip-container:hover .tooltip,
     .tooltip-container:focus-within .tooltip {
         @apply visible opacity-100;
+    }
+
+    /* ========================================================================
+       SSE Connection Status Indicator
+       ======================================================================== */
+
+    .connection-status {
+        @apply flex items-center gap-2 text-xs mb-3 px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-800 w-fit;
+    }
+
+    .connection-status .status-dot {
+        @apply w-2 h-2 rounded-full bg-green-500;
+    }
+
+    .connection-status .status-text {
+        @apply text-gray-600 dark:text-gray-400;
+    }
+
+    /* Connected state - default green */
+    .connection-status:not(.disconnected) .status-dot {
+        @apply bg-green-500;
+    }
+
+    /* Disconnected/reconnecting state - red with pulse animation */
+    .connection-status.disconnected .status-dot {
+        @apply bg-red-500;
+        animation: status-pulse 1s ease-in-out infinite;
+    }
+
+    .connection-status.disconnected .status-text {
+        @apply text-red-600 dark:text-red-400;
+    }
+
+    /* Reconnecting state - amber with faster pulse */
+    .connection-status.reconnecting .status-dot {
+        @apply bg-amber-500;
+        animation: status-pulse 0.75s ease-in-out infinite;
+    }
+
+    .connection-status.reconnecting .status-text {
+        @apply text-amber-600 dark:text-amber-400;
+    }
+
+    /* Failed state - solid red, no pulse */
+    .connection-status.failed .status-dot {
+        @apply bg-red-600;
+        animation: none;
+    }
+
+    @keyframes status-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.4; }
+    }
+
+    /* ========================================================================
+       Keyboard Navigation
+       ======================================================================== */
+
+    /* Row focus for keyboard navigation (j/k) */
+    .row-focused {
+        @apply bg-sky-100 dark:bg-sky-900/30;
+        outline: 2px solid theme('colors.sky.500');
+        outline-offset: -2px;
+    }
+
+    /* Keyboard badge styling for help modal */
+    .kbd {
+        @apply inline-block px-1.5 py-0.5 font-mono text-xs font-medium
+               bg-gray-100 dark:bg-gray-700
+               border border-gray-300 dark:border-gray-600
+               rounded shadow-sm;
+    }
+
+    /* Enhanced focus-visible for accessibility */
+    :focus-visible {
+        @apply outline-2 outline-offset-2 outline-blue-500;
+    }
+
+    /* Skip to main content link */
+    .skip-link {
+        @apply absolute -top-10 left-0 px-4 py-2 bg-gray-900 text-white z-[100]
+               focus:top-0 transition-all duration-200;
+    }
+
+    /* Key hint indicator styling */
+    #key-hint {
+        @apply transition-opacity duration-150;
+    }
+
+    /* Keyboard help modal styling */
+    #keyboard-help-modal dl {
+        @apply grid grid-cols-[auto_1fr] gap-x-4 gap-y-1;
+    }
+
+    #keyboard-help-modal dt {
+        @apply text-right whitespace-nowrap;
+    }
+
+    #keyboard-help-modal dd {
+        @apply text-left;
+    }
+
+    /* ========================================================================
+       Sidebar Navigation
+       ======================================================================== */
+
+    .sidebar {
+        transition: width 200ms ease, margin-left 200ms ease, opacity 200ms ease;
+        height: calc(100vh - 4rem); /* Viewport height minus header */
+    }
+
+    .sidebar.collapsed {
+        width: 0;
+        margin-left: -15rem; /* -w-60 = -240px = -15rem */
+        opacity: 0;
+        overflow: hidden;
+    }
+
+    /* Hide sidebar content text when collapsed */
+    .sidebar.collapsed .sidebar-collapse-text,
+    .sidebar.collapsed nav {
+        display: none;
+    }
+
+    /* Rotate collapse icon when sidebar is collapsed */
+    .sidebar.collapsed .sidebar-collapse-icon {
+        transform: rotate(180deg);
     }
 }

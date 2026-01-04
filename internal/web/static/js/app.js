@@ -16,6 +16,7 @@ function hideModal(id) {
 // Storage key generators
 const STORAGE_KEYS = {
     THEME: 'theme-mode',
+    SIDEBAR: 'sidebar-collapsed',
     columns: (tableKey) => `columns_${tableKey}`,
     sort: (tableKey) => `sort_${tableKey}`,
     views: (tableKey) => `views_${tableKey}`,
@@ -79,8 +80,103 @@ document.body.addEventListener('htmx:afterSettle', function() {
 });
 
 // ============================================================================
+// SIDEBAR NAVIGATION
+// ============================================================================
+
+function getSidebarCollapsed() {
+    return localStorage.getItem(STORAGE_KEYS.SIDEBAR) === 'true';
+}
+
+function saveSidebarState(collapsed) {
+    localStorage.setItem(STORAGE_KEYS.SIDEBAR, collapsed ? 'true' : 'false');
+}
+
+function applySidebarState(collapsed) {
+    const sidebar = document.getElementById('sidebar');
+    if (!sidebar) return;
+
+    if (collapsed) {
+        sidebar.classList.add('collapsed');
+    } else {
+        sidebar.classList.remove('collapsed');
+    }
+}
+
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    if (!sidebar) return;
+
+    const isCollapsed = sidebar.classList.toggle('collapsed');
+    saveSidebarState(isCollapsed);
+}
+
+// Initialize sidebar on page load
+document.addEventListener('DOMContentLoaded', function() {
+    applySidebarState(getSidebarCollapsed());
+});
+
+// Ensure sidebar state persists after HTMX navigations
+document.body.addEventListener('htmx:afterSettle', function() {
+    applySidebarState(getSidebarCollapsed());
+});
+
+// ============================================================================
+// TABLE LOADING INDICATOR
+// ============================================================================
+
+// Show loading indicator when HTMX requests target #table-container
+document.body.addEventListener('htmx:beforeRequest', function(e) {
+    const target = e.detail.target;
+    if (target && target.id === 'table-container') {
+        target.classList.add('htmx-request');
+    }
+});
+
+// Hide loading indicator after swap completes
+document.body.addEventListener('htmx:afterSwap', function(e) {
+    const target = e.detail.target;
+    if (target && target.id === 'table-container') {
+        target.classList.remove('htmx-request');
+    }
+});
+
+// Also handle request errors
+document.body.addEventListener('htmx:responseError', function(e) {
+    const target = e.detail.target;
+    if (target && target.id === 'table-container') {
+        target.classList.remove('htmx-request');
+    }
+});
+
+// ============================================================================
 // UPLOAD MODAL HANDLING
 // ============================================================================
+
+// Maximum file size: 100MB
+const MAX_FILE_SIZE = 100 * 1024 * 1024;
+
+// Validate file size before upload
+function validateFileSize(input) {
+    const file = input.files[0];
+    if (!file) return false;
+
+    if (file.size > MAX_FILE_SIZE) {
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+        showError(`File is too large (${sizeMB} MB). Maximum size is 100 MB.`);
+        input.value = ''; // Clear the file input
+        return false;
+    }
+    return true;
+}
+
+// Format file size for display
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
 
 // Upload modal handling
 function showUploadModal() {
@@ -107,39 +203,197 @@ function handleUploadResponse(event) {
     }
 }
 
-// Start SSE stream for upload progress
+// Track current upload for cancel functionality
+let currentUpload = {
+    id: null,
+    sseClient: null
+};
+
+// Start SSE stream for upload progress with robust reconnection
 function startProgressStream(uploadId) {
     const container = document.getElementById('upload-progress-container');
-    const eventSource = new EventSource(`/api/upload/${uploadId}/progress`);
 
-    eventSource.addEventListener('progress', function(e) {
-        const progress = JSON.parse(e.data);
-        container.innerHTML = renderProgress(progress);
+    // Clean up any existing SSE connection
+    if (currentUpload.sseClient) {
+        currentUpload.sseClient.close();
+    }
+
+    // Create new SSE client with exponential backoff reconnection
+    const client = new SSEClient(`/api/upload/${uploadId}/progress`, {
+        maxRetries: 10,
+        baseDelay: 1000,
+        maxDelay: 30000,
+
+        onProgress: (progress) => {
+            container.innerHTML = renderProgress(progress, uploadId);
+        },
+
+        onComplete: () => {
+            currentUpload.id = null;
+            currentUpload.sseClient = null;
+
+            // Fetch final result
+            fetch(`/api/upload/${uploadId}/result`)
+                .then(r => r.json())
+                .then(result => {
+                    container.innerHTML = renderComplete(result);
+                })
+                .catch(() => {
+                    showToast('Upload completed');
+                    hideUploadModal();
+                });
+        },
+
+        onError: (error) => {
+            if (error.code === 'MAX_RETRIES') {
+                container.innerHTML = renderConnectionLost(uploadId);
+            } else if (error.message) {
+                container.innerHTML = renderUploadError(error.message);
+            }
+        },
+
+        onConnectionChange: ({ connected, reconnecting, failed }) => {
+            updateConnectionStatus(container, { connected, reconnecting, failed });
+        }
     });
 
-    eventSource.addEventListener('complete', function(e) {
-        eventSource.close();
-        // Fetch final result
-        fetch(`/api/upload/${uploadId}/result`)
-            .then(r => r.json())
-            .then(result => {
-                container.innerHTML = renderComplete(result);
-            })
-            .catch(() => {
-                showToast('Upload completed');
-                hideUploadModal();
-            });
-    });
+    client.connect();
 
-    eventSource.onerror = function(e) {
-        eventSource.close();
-        showToast('Connection lost', true);
-        hideUploadModal();
-    };
+    // Store current upload reference for cancellation
+    currentUpload.id = uploadId;
+    currentUpload.sseClient = client;
 }
 
-// Render progress HTML
-function renderProgress(progress) {
+// Update connection status indicator in the progress UI
+function updateConnectionStatus(container, { connected, reconnecting, failed }) {
+    let statusEl = container.querySelector('.connection-status');
+
+    // Create status element if it doesn't exist and we have content
+    if (!statusEl && container.innerHTML.trim()) {
+        statusEl = document.createElement('div');
+        statusEl.className = 'connection-status';
+        statusEl.innerHTML = '<span class="status-dot"></span><span class="status-text"></span>';
+        container.insertBefore(statusEl, container.firstChild);
+    }
+
+    if (!statusEl) return;
+
+    const dot = statusEl.querySelector('.status-dot');
+    const text = statusEl.querySelector('.status-text');
+
+    if (failed) {
+        statusEl.classList.add('disconnected', 'failed');
+        statusEl.classList.remove('reconnecting');
+        text.textContent = 'Connection lost';
+    } else if (reconnecting) {
+        statusEl.classList.add('disconnected', 'reconnecting');
+        statusEl.classList.remove('failed');
+        text.textContent = 'Reconnecting...';
+    } else if (connected) {
+        statusEl.classList.remove('disconnected', 'reconnecting', 'failed');
+        text.textContent = 'Connected';
+    } else {
+        statusEl.classList.add('disconnected');
+        text.textContent = 'Disconnected';
+    }
+}
+
+// Render connection lost state with retry option
+function renderConnectionLost(uploadId) {
+    return `
+        <div class="space-y-4 text-center py-6">
+            <div class="flex justify-center">
+                <svg class="w-12 h-12 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                </svg>
+            </div>
+            <div>
+                <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Connection Lost</h3>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    Unable to reconnect after multiple attempts.
+                </p>
+            </div>
+            <div class="flex justify-center gap-3">
+                <button onclick="startProgressStream('${uploadId}')"
+                        class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+                    Try Again
+                </button>
+                <button onclick="hideUploadModal()"
+                        class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-300 transition-colors dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
+                    Close
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+// Render upload error state
+function renderUploadError(message) {
+    return `
+        <div class="space-y-4 text-center py-6">
+            <div class="flex justify-center">
+                <svg class="w-12 h-12 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+            </div>
+            <div>
+                <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Upload Error</h3>
+                <p class="mt-1 text-sm text-red-600 dark:text-red-400">${message}</p>
+            </div>
+            <button onclick="hideUploadModal()"
+                    class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-300 transition-colors dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
+                Close
+            </button>
+        </div>
+    `;
+}
+
+// Cancel current upload
+function cancelUpload() {
+    if (!currentUpload.id) return;
+
+    const confirmed = confirm('Are you sure you want to cancel this upload? Any partially imported data will be rolled back.');
+    if (!confirmed) return;
+
+    // Close SSE connection
+    if (currentUpload.sseClient) {
+        currentUpload.sseClient.close();
+    }
+
+    // Send cancel request to server
+    fetch(`/api/upload/${currentUpload.id}/cancel`, {
+        method: 'POST'
+    })
+    .then(r => r.json())
+    .then(result => {
+        if (result.success) {
+            showToast('Upload cancelled');
+        } else {
+            showToast(result.error || 'Failed to cancel upload', true);
+        }
+    })
+    .catch(() => {
+        showToast('Failed to cancel upload', true);
+    })
+    .finally(() => {
+        currentUpload.id = null;
+        currentUpload.sseClient = null;
+        hideUploadModal();
+    });
+}
+
+// Clean up SSE connection on page unload to prevent dangling connections
+window.addEventListener('beforeunload', () => {
+    if (currentUpload.sseClient) {
+        currentUpload.sseClient.close();
+        currentUpload.sseClient = null;
+    }
+});
+
+// Render progress HTML with cancel button
+function renderProgress(progress, uploadId) {
     const percent = progress.total_rows > 0
         ? Math.round((progress.current_row / progress.total_rows) * 100)
         : 0;
@@ -159,23 +413,50 @@ function renderProgress(progress) {
         : progress.phase === 'cancelled' ? 'bg-yellow-500'
         : 'bg-blue-500';
 
+    const isActive = !['complete', 'failed', 'cancelled'].includes(progress.phase);
+    const fileSize = progress.file_size ? formatFileSize(progress.file_size) : '';
+
     let html = `
-        <div class="space-y-3">
+        <div class="space-y-4">
             <div class="flex items-center justify-between">
-                <span class="text-sm font-medium text-gray-700">${progress.file_name || 'Uploading...'}</span>
-                <span class="text-sm text-gray-500">${phaseLabels[progress.phase] || progress.phase}</span>
+                <div class="min-w-0">
+                    <span class="text-sm font-medium text-gray-900 dark:text-white block truncate">${progress.file_name || 'Uploading...'}</span>
+                    ${fileSize ? `<span class="text-xs text-gray-400">${fileSize}</span>` : ''}
+                </div>
+                <span class="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap ml-2">${phaseLabels[progress.phase] || progress.phase}</span>
             </div>
-            <div class="w-full bg-gray-200 rounded-full h-2.5">
-                <div class="h-2.5 rounded-full transition-all duration-300 ${barColor}" style="width: ${percent}%"></div>
+
+            <div class="relative">
+                <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3">
+                    <div class="h-3 rounded-full transition-all duration-300 ${barColor}" style="width: ${percent}%"></div>
+                </div>
+                <span class="absolute inset-0 flex items-center justify-center text-xs font-medium ${percent > 50 ? 'text-white' : 'text-gray-700 dark:text-gray-300'}">${percent}%</span>
             </div>
-            <div class="flex justify-between text-xs text-gray-500">
-                <span>${progress.current_row} / ${progress.total_rows} rows</span>
-                <span>${progress.inserted} inserted, ${progress.skipped} skipped</span>
+
+            <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400">
+                <span>${progress.current_row.toLocaleString()} / ${progress.total_rows.toLocaleString()} rows</span>
+                <span class="text-green-600 dark:text-green-400">${progress.inserted.toLocaleString()} inserted</span>
+                ${progress.skipped > 0 ? `<span class="text-amber-600 dark:text-amber-400">${progress.skipped.toLocaleString()} skipped</span>` : ''}
             </div>
     `;
 
     if (progress.error) {
-        html += `<div class="mt-2 text-sm text-red-600 bg-red-50 rounded p-2">${progress.error}</div>`;
+        html += `<div class="text-sm text-red-600 bg-red-50 dark:bg-red-900/30 dark:text-red-400 rounded p-3">${progress.error}</div>`;
+    }
+
+    // Cancel button during active upload
+    if (isActive) {
+        html += `
+            <div class="flex justify-end pt-2 border-t border-gray-200 dark:border-gray-700">
+                <button
+                    type="button"
+                    onclick="cancelUpload()"
+                    class="px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30 rounded-md transition-colors"
+                >
+                    Cancel Upload
+                </button>
+            </div>
+        `;
     }
 
     html += '</div>';
@@ -2225,12 +2506,13 @@ function updateSelectionUI() {
     if (!bar) return;
 
     if (count > 0) {
-        bar.classList.remove('hidden');
+        // Use inline style to override any CSS class conflicts (hidden + flex)
+        bar.style.display = 'flex';
         if (countSpan) {
-            countSpan.textContent = `${count} row${count > 1 ? 's' : ''} selected`;
+            countSpan.textContent = `${count} row${count !== 1 ? 's' : ''} selected`;
         }
     } else {
-        bar.classList.add('hidden');
+        bar.style.display = 'none';
     }
 }
 

@@ -21,8 +21,30 @@ type TableGroup struct {
 	Tables []TableCardData
 }
 
-templ Dashboard(groups []TableGroup) {
-	@Layout("Dashboard") {
+templ Dashboard(sidebar SidebarParams, groups []TableGroup) {
+	@Layout("Dashboard", sidebar) {
+		<!-- Dashboard header with Reset All button -->
+		<div class="flex items-center justify-between mb-8">
+			<div>
+				<h1 class="text-2xl font-semibold text-gray-900 dark:text-white">Dashboard</h1>
+				<p class="text-sm text-gray-500 dark:text-gray-400">Manage your data imports</p>
+			</div>
+			<button
+				hx-post="/api/reset"
+				hx-confirm="Reset ALL tables? This will delete all data and cannot be undone."
+				hx-swap="none"
+				class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 hover:text-red-700 transition-colors dark:bg-red-900/20 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/40"
+			>
+				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+				</svg>
+				<span class="btn-text">Reset All Data</span>
+				<span class="loading-indicator">
+					<span class="spinner-sm border-red-600 border-t-transparent"></span>
+				</span>
+			</button>
+		</div>
+
 		<div class="space-y-8">
 			for _, group := range groups {
 				@TableGroupSection(group)
@@ -196,13 +218,14 @@ templ TableCard(data TableCardData) {
 			data-unique-key={ toJSON(data.Info.UniqueKey) }
 			data-table-label={ data.Info.Label }
 		>
-			<input type="file" name="file" accept=".csv" class="hidden" id={ "file-" + data.Info.Key } onchange="showPreview(this)"/>
+			<input type="file" name="file" accept=".csv" class="hidden" id={ "file-" + data.Info.Key } onchange="validateFileSize(this) && showPreview(this)"/>
 			<label for={ "file-" + data.Info.Key } class="cursor-pointer block">
 				<div class="flex flex-col items-center py-4">
 					<svg class="w-8 h-8 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
 					</svg>
 					<span class="text-sm text-gray-600 dark:text-gray-400">Drop CSV or click to upload</span>
+					<span class="text-xs text-gray-400 dark:text-gray-500 mt-1">Max file size: 100 MB</span>
 				</div>
 			</label>
 		</form>
@@ -229,9 +252,12 @@ templ TableCard(data TableCardData) {
 				hx-confirm={ "Reset " + data.Info.Label + "? This cannot be undone." }
 				hx-swap="none"
 				hx-on::after-request="showToast('Table reset successfully')"
-				class="text-xs text-red-600 hover:text-red-700 hover:underline font-medium"
+				class="inline-flex items-center gap-1 text-xs text-red-600 hover:text-red-700 hover:underline font-medium"
 			>
-				Reset
+				<span class="btn-text">Reset</span>
+				<span class="loading-indicator">
+					<span class="spinner-sm border-red-600 border-t-transparent"></span>
+				</span>
 			</button>
 		</div>
 

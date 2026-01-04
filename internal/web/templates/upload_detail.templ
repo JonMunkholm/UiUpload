@@ -25,12 +25,11 @@ func (p UploadDetailParams) BuildUploadURL(status string, page int) string {
 	return fmt.Sprintf("/upload/%s?status=%s&page=%d", p.Upload.ID, status, page)
 }
 
-templ UploadDetailPage(params UploadDetailParams) {
-	@Layout("Upload Details") {
+templ UploadDetailPage(sidebar SidebarParams, params UploadDetailParams) {
+	@Layout("Upload Details", sidebar) {
 		<div class="space-y-6">
-			<!-- Header with back link -->
+			<!-- Header -->
 			<div>
-				<a href="/audit-log" class="text-sm text-blue-600 hover:underline mb-2 inline-block dark:text-blue-400">&larr; Back to Audit Log</a>
 				<div class="flex items-center justify-between">
 					<div>
 						<h1 class="text-2xl font-semibold text-gray-900 dark:text-white">Upload Details</h1>

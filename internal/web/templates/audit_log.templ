@@ -70,15 +70,9 @@ func (p AuditLogViewParams) BuildExportURL() string {
 }
 
 // AuditLogPage renders the full audit log page with layout
-templ AuditLogPage(params AuditLogViewParams) {
-	@Layout("Audit Log") {
+templ AuditLogPage(sidebar SidebarParams, params AuditLogViewParams) {
+	@Layout("Audit Log", sidebar) {
 		<div class="space-y-6">
-			<div class="flex items-center justify-between">
-				<h1 class="text-2xl font-semibold text-gray-900 dark:text-white">Audit Log</h1>
-				<div class="text-sm text-gray-500 dark:text-gray-400">
-					{ fmt.Sprintf("%d entries", params.TotalCount) }
-				</div>
-			</div>
 			<div id="audit-content">
 				@AuditLogPartial(params)
 			</div>
@@ -89,6 +83,13 @@ templ AuditLogPage(params AuditLogViewParams) {
 // AuditLogPartial renders the filterable content (for HTMX swaps)
 templ AuditLogPartial(params AuditLogViewParams) {
 	<div class="space-y-4">
+		<!-- Header with title and entry count - inside partial so it updates on filter -->
+		<div class="flex items-center justify-between">
+			<h1 class="text-2xl font-semibold text-gray-900 dark:text-white">Audit Log</h1>
+			<div class="text-sm text-gray-500 dark:text-gray-400">
+				{ formatEntryCount(params) }
+			</div>
+		</div>
 		@AuditLogFilters(params)
 		@AuditLogList(params)
 		if params.TotalPages > 1 {
@@ -178,9 +179,12 @@ templ AuditLogFilters(params AuditLogViewParams) {
 		<div class="flex items-center gap-2">
 			<button
 				type="submit"
-				class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+				class="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
 			>
-				Apply Filters
+				<span class="btn-text">Apply Filters</span>
+				<span class="loading-indicator">
+					<span class="spinner-sm border-white border-t-transparent"></span>
+				</span>
 			</button>
 			<a
 				href="/audit-log"
@@ -209,9 +213,49 @@ templ AuditLogFilters(params AuditLogViewParams) {
 templ AuditLogList(params AuditLogViewParams) {
 	<div class="bg-white dark:bg-gray-800 rounded-lg shadow divide-y divide-gray-200 dark:divide-gray-700">
 		if len(params.Entries) == 0 {
-			<div class="p-8 text-center text-gray-500 dark:text-gray-400">
-				No audit entries found
-			</div>
+			<!-- Empty state: differentiate between no activity and filtered to nothing -->
+			if params.Filter.Action != "" || params.Filter.TableKey != "" || params.Filter.Severity != "" || params.Filter.StartDate != "" || params.Filter.EndDate != "" {
+				<!-- Filtered to nothing -->
+				<div class="py-12 px-8 text-center">
+					<svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+					</svg>
+					<h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">No matching entries</h3>
+					<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Try adjusting your filters to see more results.</p>
+					<div class="mt-6">
+						<a
+							href="/audit-log"
+							hx-get="/audit-log"
+							hx-target="#audit-content"
+							hx-swap="innerHTML"
+							hx-push-url="true"
+							class="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600 transition-colors"
+						>
+							<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+							</svg>
+							Clear Filters
+						</a>
+					</div>
+				</div>
+			} else {
+				<!-- No activity recorded yet -->
+				<div class="py-12 px-8 text-center">
+					<svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path>
+					</svg>
+					<h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">No activity recorded</h3>
+					<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Actions like uploads, edits, and deletes will appear here.</p>
+					<div class="mt-6">
+						<a href="/" class="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors">
+							<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+							</svg>
+							Upload Your First CSV
+						</a>
+					</div>
+				</div>
+			}
 		} else {
 			for _, entry := range params.Entries {
 				@AuditEntryRow(entry)
@@ -425,6 +469,7 @@ templ AuditLogPagination(params AuditLogViewParams) {
 		<div class="flex items-center gap-2">
 			if params.Page > 1 {
 				<button
+					data-prev-page
 					hx-get={ params.BuildFilterURL(params.Page - 1) }
 					hx-target="#audit-content"
 					hx-swap="innerHTML"
@@ -454,6 +499,7 @@ templ AuditLogPagination(params AuditLogViewParams) {
 			}
 			if params.Page < params.TotalPages {
 				<button
+					data-next-page
 					hx-get={ params.BuildFilterURL(params.Page + 1) }
 					hx-target="#audit-content"
 					hx-swap="innerHTML"
@@ -472,12 +518,12 @@ func auditEntrySummary(entry core.AuditEntry) string {
 	switch entry.Action {
 	case core.ActionUpload:
 		if entry.RowsAffected > 0 {
-			return fmt.Sprintf("%d rows uploaded", entry.RowsAffected)
+			return fmt.Sprintf("%d %s uploaded", entry.RowsAffected, pluralize(entry.RowsAffected, "row", "rows"))
 		}
 		return "File uploaded"
 	case core.ActionUploadRollback:
 		if entry.RowsAffected > 0 {
-			return fmt.Sprintf("%d rows rolled back", entry.RowsAffected)
+			return fmt.Sprintf("%d %s rolled back", entry.RowsAffected, pluralize(entry.RowsAffected, "row", "rows"))
 		}
 		return "Upload rolled back"
 	case core.ActionCellEdit:
@@ -487,7 +533,7 @@ func auditEntrySummary(entry core.AuditEntry) string {
 		return "Cell edited"
 	case core.ActionBulkEdit:
 		if entry.RowsAffected > 0 && entry.ColumnName != "" {
-			return fmt.Sprintf("%d rows: %s", entry.RowsAffected, entry.ColumnName)
+			return fmt.Sprintf("%d %s: %s", entry.RowsAffected, pluralize(entry.RowsAffected, "row", "rows"), entry.ColumnName)
 		}
 		return "Bulk edit"
 	case core.ActionRowDelete:
@@ -496,7 +542,7 @@ func auditEntrySummary(entry core.AuditEntry) string {
 		return "Row restored"
 	case core.ActionTableReset:
 		if entry.RowsAffected > 0 {
-			return fmt.Sprintf("%d rows deleted", entry.RowsAffected)
+			return fmt.Sprintf("%d %s deleted", entry.RowsAffected, pluralize(entry.RowsAffected, "row", "rows"))
 		}
 		return "Table reset"
 	case core.ActionTemplateCreate, core.ActionTemplateUpdate, core.ActionTemplateDelete:
@@ -526,4 +572,21 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// formatEntryCount returns a grammatically correct entry count string
+func formatEntryCount(params AuditLogViewParams) string {
+	count := params.TotalCount
+	if count == 1 {
+		return "1 entry"
+	}
+	return fmt.Sprintf("%d entries", count)
+}
+
+// pluralize returns singular or plural form based on count
+func pluralize(count int, singular, plural string) string {
+	if count == 1 {
+		return singular
+	}
+	return plural
 }

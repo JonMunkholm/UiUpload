@@ -21,11 +21,10 @@ type ColumnMeta struct {
 	AllowEmpty  bool     `json:"allowEmpty"`
 }
 
-templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult, columnMeta []ColumnMeta) {
-	@Layout(info.Label + " - Data View") {
-		<!-- Header with back link -->
+templ TableView(sidebar SidebarParams, tableKey string, info core.TableInfo, data *core.TableDataResult, columnMeta []ColumnMeta) {
+	@Layout(info.Label + " - Data View", sidebar) {
+		<!-- Header -->
 		<div class="mb-6">
-			<a href="/" class="text-sm text-blue-600 hover:underline mb-2 inline-block dark:text-blue-400">&larr; Back to Dashboard</a>
 			<div class="flex items-center justify-between">
 				<div>
 					<h1 class="text-2xl font-semibold text-gray-900 dark:text-white">{ info.Label }</h1>
@@ -43,8 +42,9 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 						<input
 							type="search"
 							name="search"
-							placeholder="Search..."
+							placeholder="Search... (press /)"
 							value={ data.SearchQuery }
+							data-search-input
 							class="w-64 pl-10 pr-4 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"
 							hx-get={ buildSearchURL(tableKey, data) }
 							hx-target="#table-container"
@@ -151,7 +151,7 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 
 		<!-- Selection Bar (hidden until rows selected) -->
 		if len(info.UniqueKey) > 0 {
-			<div id="selection-bar" class="hidden mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between dark:bg-blue-900/30 dark:border-blue-800">
+			<div id="selection-bar" class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between dark:bg-blue-900/30 dark:border-blue-800" style="display: none;">
 				<span id="selection-count" class="text-sm font-medium text-blue-800 dark:text-blue-300">0 rows selected</span>
 				<div class="flex items-center gap-2">
 					<button
@@ -179,7 +179,7 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 		}
 
 		<!-- Table container with id for HTMX swaps -->
-		<div id="table-container" data-table-key={ tableKey } data-unique-key={ toJSON(info.UniqueKey) } data-columns-meta={ toColumnsMetaJSON(columnMeta) }>
+		<div id="table-container" class="relative" data-table-key={ tableKey } data-unique-key={ toJSON(info.UniqueKey) } data-columns-meta={ toColumnsMetaJSON(columnMeta) }>
 			@TablePartial(tableKey, info, data, columnMeta)
 		</div>
 
@@ -329,25 +329,56 @@ templ TableView(tableKey string, info core.TableInfo, data *core.TableDataResult
 }
 
 templ TablePartial(tableKey string, info core.TableInfo, data *core.TableDataResult, columnMeta []ColumnMeta) {
+	<!-- Loading overlay - shown during HTMX requests -->
+	@TableLoadingIndicator()
+
 	<!-- Active Filters Bar -->
 	@ActiveFiltersBar(tableKey, data)
 
 	if data.TotalRows == 0 {
-		<div class="text-center py-12 bg-white rounded-lg border border-gray-200 dark:bg-gray-800 dark:border-gray-700">
-			<svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
-			</svg>
-			<h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">No data yet</h3>
-			<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Upload a CSV file to populate this table.</p>
-			if len(data.ActiveFilters) > 0 {
-				<p class="mt-2 text-sm text-gray-500 dark:text-gray-400">Try clearing filters above to see all data.</p>
-			}
-			<div class="mt-6">
-				<a href="/" class="text-sm font-medium text-blue-600 hover:text-blue-500 dark:text-blue-400">
-					Go to Dashboard to upload &rarr;
-				</a>
+		<!-- Empty state: differentiate between no data and filtered to nothing -->
+		if len(data.ActiveFilters) > 0 || data.SearchQuery != "" {
+			<!-- Filtered to nothing - show search/filter empty state -->
+			<div class="text-center py-12 bg-white rounded-lg border border-gray-200 dark:bg-gray-800 dark:border-gray-700">
+				<svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+				</svg>
+				<h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">No matching records</h3>
+				<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Try adjusting your search or filters.</p>
+				<div class="mt-6 flex justify-center gap-4">
+					<button
+						type="button"
+						hx-get={ "/table/" + tableKey }
+						hx-target="#table-container"
+						hx-swap="innerHTML"
+						hx-push-url="true"
+						class="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600 transition-colors"
+					>
+						<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+						</svg>
+						Clear Filters
+					</button>
+				</div>
 			</div>
-		</div>
+		} else {
+			<!-- No data yet - show upload empty state -->
+			<div class="text-center py-12 bg-white rounded-lg border border-gray-200 dark:bg-gray-800 dark:border-gray-700">
+				<svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+				</svg>
+				<h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">No data yet</h3>
+				<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Upload a CSV file to populate this table.</p>
+				<div class="mt-6">
+					<a href="/" class="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors">
+						<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+						</svg>
+						Upload CSV
+					</a>
+				</div>
+			</div>
+		}
 	} else {
 		<!-- Scrollable table wrapper -->
 		<div class="overflow-x-auto border border-gray-200 rounded-lg shadow-sm dark:border-gray-700">
@@ -692,13 +723,17 @@ templ Pagination(tableKey string, data *core.TableDataResult) {
 		<div class="flex items-center gap-2">
 			if data.Page > 1 {
 				<button
-					class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600"
+					data-prev-page
+					class="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600"
 					hx-get={ buildPageURL(tableKey, data.Page-1, data) }
 					hx-target="#table-container"
 					hx-swap="innerHTML"
 					hx-push-url="true"
 				>
-					Previous
+					<span class="btn-text">Previous</span>
+					<span class="loading-indicator">
+						<span class="spinner-sm border-gray-500 border-t-transparent"></span>
+					</span>
 				</button>
 			}
 
@@ -728,13 +763,17 @@ templ Pagination(tableKey string, data *core.TableDataResult) {
 
 			if data.Page < data.TotalPages {
 				<button
-					class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600"
+					data-next-page
+					class="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600"
 					hx-get={ buildPageURL(tableKey, data.Page+1, data) }
 					hx-target="#table-container"
 					hx-swap="innerHTML"
 					hx-push-url="true"
 				>
-					Next
+					<span class="btn-text">Next</span>
+					<span class="loading-indicator">
+						<span class="spinner-sm border-gray-500 border-t-transparent"></span>
+					</span>
 				</button>
 			}
 		</div>
@@ -1244,5 +1283,55 @@ templ MetricToggle(value, label string) {
 			<div class="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow peer-checked:translate-x-4 transition-transform"></div>
 		</div>
 	</label>
+}
+
+// TableSkeletonLoader shows a placeholder skeleton while the table data loads.
+// Takes number of columns and rows as parameters for flexible sizing.
+templ TableSkeletonLoader(numColumns, numRows int) {
+	<div class="overflow-x-auto border border-gray-200 rounded-lg shadow-sm dark:border-gray-700" aria-busy="true" aria-label="Loading table data">
+		<table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+			<thead class="bg-gray-50 dark:bg-gray-800">
+				<tr>
+					for i := 0; i < numColumns; i++ {
+						<th class="px-4 py-3">
+							<div class="skeleton-text w-20"></div>
+						</th>
+					}
+				</tr>
+			</thead>
+			<tbody class="bg-white divide-y divide-gray-100 dark:bg-gray-900 dark:divide-gray-700">
+				for r := 0; r < numRows; r++ {
+					<tr>
+						for c := 0; c < numColumns; c++ {
+							<td class="px-4 py-3">
+								<div class={ "skeleton-text", templ.KV("w-16", c == 0), templ.KV("w-24", c == 1), templ.KV("w-32", c > 1) }></div>
+							</td>
+						}
+					</tr>
+				}
+			</tbody>
+		</table>
+	</div>
+	<!-- Skeleton pagination -->
+	<div class="flex items-center justify-between px-4 py-3 bg-white border-t border-gray-200 rounded-b-lg dark:bg-gray-800 dark:border-gray-700">
+		<div class="skeleton-text w-32"></div>
+		<div class="flex items-center gap-2">
+			<div class="skeleton w-20 h-8 rounded-md"></div>
+			<div class="skeleton w-8 h-8 rounded-md"></div>
+			<div class="skeleton w-8 h-8 rounded-md"></div>
+			<div class="skeleton w-20 h-8 rounded-md"></div>
+		</div>
+	</div>
+}
+
+// TableLoadingIndicator shows a centered loading spinner overlay.
+// Use this on the table container during HTMX requests.
+templ TableLoadingIndicator() {
+	<div class="loading-indicator absolute inset-0 items-center justify-center bg-white/75 dark:bg-gray-900/75 z-10">
+		<div class="flex flex-col items-center gap-3">
+			<span class="spinner-lg border-blue-600 border-t-transparent"></span>
+			<span class="text-sm text-gray-600 dark:text-gray-400">Loading...</span>
+		</div>
+	</div>
 }
 
