@@ -224,3 +224,15 @@ type RollbackResult struct {
 	Success     bool   `json:"success"`
 	Error       string `json:"error,omitempty"`
 }
+
+// RollbackPreview contains information about what would be rolled back.
+// Used for confirmation dialogs before performing a rollback.
+type RollbackPreview struct {
+	UploadID     string `json:"uploadId"`
+	TableKey     string `json:"tableKey"`
+	FileName     string `json:"fileName,omitempty"`
+	UploadedAt   string `json:"uploadedAt,omitempty"`
+	RowsToDelete int64  `json:"rowsToDelete"`
+	CanRollback  bool   `json:"canRollback"`
+	Reason       string `json:"reason,omitempty"`
+}

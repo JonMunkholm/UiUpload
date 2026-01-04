@@ -1,14 +1,28 @@
 package core
 
+// convert.go provides type conversion functions for CSV data to PostgreSQL types.
+//
+// These functions handle the messy reality of user-provided CSV data:
+//   - Multiple date formats (US, EU, ISO, etc.)
+//   - Currency symbols and thousand separators in numbers
+//   - Various boolean representations (yes/no, true/false, 1/0)
+//   - Excel formula prefixes (="value")
+//   - Common CSV artifacts (BOM, weird quotes)
+//
+// All ToPg* functions return pgtype values with Valid=false for empty/invalid input,
+// allowing the database to handle NULLs appropriately.
+
 import (
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// Pre-compiled regex for numeric validation
+// numericRegex validates that a string is a valid numeric format after cleanup.
+// Matches integers, decimals, and scientific notation.
 var numericRegex = regexp.MustCompile(`^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$`)
 
 // TwoDigitYearPivot defines how 2-digit years are interpreted.
@@ -129,6 +143,37 @@ func ToPgBool(s string) pgtype.Bool {
 	default:
 		return pgtype.Bool{Valid: false}
 	}
+}
+
+// ToPgInt4 converts an int to pgtype.Int4.
+// Returns invalid if the value is zero.
+func ToPgInt4(i int) pgtype.Int4 {
+	if i == 0 {
+		return pgtype.Int4{Valid: false}
+	}
+	return pgtype.Int4{Int32: int32(i), Valid: true}
+}
+
+// ToPgUUID converts a string to pgtype.UUID.
+// Returns invalid if the string is empty or not a valid UUID.
+func ToPgUUID(s string) pgtype.UUID {
+	if s == "" {
+		return pgtype.UUID{Valid: false}
+	}
+	parsed, err := uuid.Parse(s)
+	if err != nil {
+		return pgtype.UUID{Valid: false}
+	}
+	return pgtype.UUID{Bytes: parsed, Valid: true}
+}
+
+// PgUUIDToString converts a pgtype.UUID to its string representation.
+// Returns empty string if the UUID is invalid.
+func PgUUIDToString(u pgtype.UUID) string {
+	if !u.Valid {
+		return ""
+	}
+	return uuid.UUID(u.Bytes).String()
 }
 
 // MakeHeaderIndex creates a HeaderIndex from a CSV header row.

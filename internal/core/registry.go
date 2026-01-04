@@ -1,11 +1,23 @@
 package core
 
+// registry.go provides a thread-safe global registry for table definitions.
+//
+// Tables are registered at init time via Register() and looked up by key
+// during upload processing, querying, and reset operations. The registry
+// ensures consistent ordering when listing tables (sorted by group, then key).
+//
+// Thread Safety: All registry operations are protected by a RWMutex,
+// allowing concurrent reads during request handling while preventing
+// concurrent registration (which should only happen at init time anyway).
+
 import (
 	"fmt"
 	"sort"
 	"sync"
 )
 
+// registry holds all registered table definitions, keyed by TableInfo.Key.
+// Protected by registryMu for concurrent access.
 var (
 	registry   = make(map[string]TableDefinition)
 	registryMu sync.RWMutex

@@ -1,17 +1,28 @@
 package core
 
+// helpers.go provides utility functions and builders for common operations.
+//
+// Key utilities:
+//   - WhereBuilder: Constructs parameterized WHERE clauses safely
+//   - resolveDBColumn: Maps display column names to database column names
+//   - Column constants for defaults and thresholds
+
 import (
 	"fmt"
 	"strings"
 )
 
-// TemplateMatchThreshold is the minimum score for a template to be considered a match.
+// TemplateMatchThreshold is the minimum score (0.0-1.0) for a template to be
+// considered a match during auto-detection. Columns are matched by Jaccard
+// similarity of their normalized names.
 const TemplateMatchThreshold = 0.7
 
 // DefaultPageSize is the default number of rows per page in table views.
+// Used when the client doesn't specify a page size.
 const DefaultPageSize = 50
 
 // DefaultHistoryLimit is the default number of history entries to retrieve.
+// Applies to upload history, audit log, and similar paginated lists.
 const DefaultHistoryLimit = 50
 
 // resolveDBColumn returns the database column name for a given field name.
@@ -35,10 +46,23 @@ func resolveDBColumns(cols []string, specs []FieldSpec) []string {
 }
 
 // WhereBuilder constructs parameterized WHERE clauses for SQL queries.
+//
+// It manages parameter indexing automatically ($1, $2, etc.) and builds
+// safe, parameterized queries to prevent SQL injection.
+//
+// Example usage:
+//
+//	wb := NewWhereBuilder()
+//	wb.Add("table_key", "sfdc_customers")
+//	wb.AddSearch("acme", specs)
+//	wb.AddFilters(filters)
+//	whereClause, args := wb.Build()
+//	// whereClause: " WHERE table_key = $1 AND (name ILIKE $2 OR email ILIKE $2)"
+//	// args: ["sfdc_customers", "%acme%"]
 type WhereBuilder struct {
-	conditions []string
-	args       []interface{}
-	argIndex   int
+	conditions []string       // SQL condition fragments (e.g., "table_key = $1")
+	args       []interface{}  // Corresponding parameter values
+	argIndex   int            // Next parameter index to use
 }
 
 // NewWhereBuilder creates a new WhereBuilder starting at parameter $1.

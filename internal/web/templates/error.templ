@@ -1,0 +1,135 @@
+package templates
+
+// ErrorAlert renders a user-friendly error message with actionable guidance.
+// Used for HTMX responses to display errors inline without a full page refresh.
+templ ErrorAlert(message, action, code string) {
+	<div class="rounded-md bg-red-50 dark:bg-red-900/30 p-4 border border-red-200 dark:border-red-800" role="alert">
+		<div class="flex">
+			<div class="flex-shrink-0">
+				<svg class="h-5 w-5 text-red-400 dark:text-red-500" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+					<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clip-rule="evenodd"></path>
+				</svg>
+			</div>
+			<div class="ml-3 flex-1">
+				<h3 class="text-sm font-medium text-red-800 dark:text-red-200">
+					{ message }
+				</h3>
+				if action != "" {
+					<div class="mt-2 text-sm text-red-700 dark:text-red-300">
+						<p>{ action }</p>
+					</div>
+				}
+				if code != "" {
+					<div class="mt-2">
+						<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-600 dark:bg-red-800 dark:text-red-200">
+							Code: { code }
+						</span>
+					</div>
+				}
+			</div>
+		</div>
+	</div>
+}
+
+// ErrorToast renders a dismissible toast notification for errors.
+// Automatically dismisses after a delay when used with JavaScript.
+templ ErrorToast(message, code string) {
+	<div
+		class="fixed bottom-4 right-4 z-50 max-w-sm bg-red-600 text-white rounded-lg shadow-lg p-4 animate-slide-up"
+		role="alert"
+		x-data="{ show: true }"
+		x-show="show"
+		x-init="setTimeout(() => show = false, 5000)"
+	>
+		<div class="flex items-start gap-3">
+			<svg class="h-5 w-5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+				<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clip-rule="evenodd"></path>
+			</svg>
+			<div class="flex-1">
+				<p class="text-sm font-medium">{ message }</p>
+				if code != "" {
+					<p class="text-xs text-red-200 mt-1">Error code: { code }</p>
+				}
+			</div>
+			<button
+				type="button"
+				class="flex-shrink-0 text-red-200 hover:text-white"
+				onclick="this.closest('[role=alert]').remove()"
+			>
+				<svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+					<path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"></path>
+				</svg>
+			</button>
+		</div>
+	</div>
+}
+
+// ErrorBanner renders a full-width error banner for critical errors.
+templ ErrorBanner(message, action, code string) {
+	<div class="bg-red-600 text-white" role="alert">
+		<div class="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8">
+			<div class="flex flex-wrap items-center justify-between gap-3">
+				<div class="flex items-center gap-3">
+					<svg class="h-5 w-5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+						<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clip-rule="evenodd"></path>
+					</svg>
+					<p class="text-sm font-medium">
+						<span>{ message }</span>
+						if action != "" {
+							<span class="ml-2 text-red-100">{ action }</span>
+						}
+					</p>
+				</div>
+				if code != "" {
+					<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-500 text-red-100">
+						{ code }
+					</span>
+				}
+			</div>
+		</div>
+	</div>
+}
+
+// WarningAlert renders a warning message (for non-critical issues like validation warnings).
+templ WarningAlert(message, action string) {
+	<div class="rounded-md bg-amber-50 dark:bg-amber-900/30 p-4 border border-amber-200 dark:border-amber-800" role="alert">
+		<div class="flex">
+			<div class="flex-shrink-0">
+				<svg class="h-5 w-5 text-amber-400 dark:text-amber-500" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+					<path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"></path>
+				</svg>
+			</div>
+			<div class="ml-3">
+				<h3 class="text-sm font-medium text-amber-800 dark:text-amber-200">
+					{ message }
+				</h3>
+				if action != "" {
+					<div class="mt-2 text-sm text-amber-700 dark:text-amber-300">
+						<p>{ action }</p>
+					</div>
+				}
+			</div>
+		</div>
+	</div>
+}
+
+// InfoAlert renders an informational message.
+templ InfoAlert(message, action string) {
+	<div class="rounded-md bg-blue-50 dark:bg-blue-900/30 p-4 border border-blue-200 dark:border-blue-800" role="status">
+		<div class="flex">
+			<div class="flex-shrink-0">
+				<svg class="h-5 w-5 text-blue-400 dark:text-blue-500" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+					<path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clip-rule="evenodd"></path>
+				</svg>
+			</div>
+			<div class="ml-3">
+				<p class="text-sm text-blue-700 dark:text-blue-300">
+					{ message }
+					if action != "" {
+						<span class="font-medium ml-1">{ action }</span>
+					}
+				</p>
+			</div>
+		</div>
+	</div>
+}

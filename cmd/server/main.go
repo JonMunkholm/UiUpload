@@ -2,16 +2,17 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/url"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
-	"time"
 
+	"github.com/JonMunkholm/TUI/internal/config"
 	"github.com/JonMunkholm/TUI/internal/core"
 	_ "github.com/JonMunkholm/TUI/internal/core/tables" // Register all tables
+	"github.com/JonMunkholm/TUI/internal/logging"
 	"github.com/JonMunkholm/TUI/internal/web"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
@@ -20,76 +21,93 @@ import (
 func main() {
 	// Load .env file if it exists (Overload overwrites existing env vars)
 	if err := godotenv.Overload(); err != nil {
-		log.Println("No .env file found, using environment variables")
+		slog.Info("no .env file found, using environment variables")
 	} else {
-		log.Println("Loaded .env file (overwriting existing env vars)")
+		slog.Info("loaded .env file (overwriting existing env vars)")
 	}
 
-	// Get database URL from environment (check both DATABASE_URL and DB_URL)
-	dbURL := os.Getenv("DATABASE_URL")
-	dbSource := "DATABASE_URL"
-	if dbURL == "" {
-		dbURL = os.Getenv("DB_URL")
-		dbSource = "DB_URL"
+	// Load and validate configuration
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("failed to load configuration", "error", err)
+		os.Exit(1)
 	}
-	if dbURL == "" {
-		dbURL = "postgres://localhost:5432/csvimporter?sslmode=disable"
-		dbSource = "default"
-	}
-	log.Printf("Using database URL from: %s", dbSource)
 
-	// Get server address from environment
-	addr := os.Getenv("SERVER_ADDR")
-	if addr == "" {
-		addr = ":8080"
+	// Setup structured logging based on config
+	logging.Setup(cfg.Logging.Level, cfg.Logging.Format)
+
+	slog.Info("configuration loaded",
+		"port", cfg.Server.Port,
+		"db_max_conns", cfg.Database.MaxConns,
+		"upload_max_concurrent", cfg.Upload.MaxConcurrent,
+		"rate_limit_enabled", cfg.Rate.Enabled,
+	)
+
+	// Parse and configure connection pool
+	poolConfig, err := pgxpool.ParseConfig(cfg.Database.URL)
+	if err != nil {
+		slog.Error("failed to parse database URL", "error", err)
+		os.Exit(1)
 	}
+
+	// Apply pool configuration from config
+	poolConfig.MaxConns = int32(cfg.Database.MaxConns)
+	poolConfig.MinConns = int32(cfg.Database.MinConns)
+	poolConfig.MaxConnLifetime = cfg.Database.MaxConnLifetime
+	poolConfig.MaxConnIdleTime = cfg.Database.MaxConnIdleTime
 
 	// Connect to database
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, dbURL)
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		slog.Error("failed to connect to database", "error", err)
+		os.Exit(1)
 	}
 	defer pool.Close()
 
 	// Verify connection
 	if err := pool.Ping(ctx); err != nil {
-		log.Fatalf("Failed to ping database: %v", err)
+		slog.Error("failed to ping database", "error", err)
+		os.Exit(1)
 	}
 
 	// Log which database we connected to
-	if u, err := url.Parse(dbURL); err == nil {
+	if u, err := url.Parse(cfg.Database.URL); err == nil {
 		dbName := strings.TrimPrefix(u.Path, "/")
-		log.Printf("Connected to database: %s", dbName)
+		slog.Info("connected to database", "name", dbName)
 	} else {
-		log.Printf("Connected to database")
+		slog.Info("connected to database")
 	}
 
-	// Create service
-	service, err := core.NewService(pool)
+	// Create service with config
+	service, err := core.NewService(pool, cfg)
 	if err != nil {
-		log.Fatalf("Failed to create service: %v", err)
+		slog.Error("failed to create service", "error", err)
+		os.Exit(1)
 	}
 
 	// Log registered tables
-	log.Printf("Registered %d tables in %d groups", core.TableCount(), len(core.Groups()))
+	slog.Info("tables registered",
+		"count", core.TableCount(),
+		"groups", len(core.Groups()),
+	)
 	for _, group := range core.Groups() {
 		tables := core.ByGroup(group)
-		log.Printf("  %s: %d tables", group, len(tables))
+		slog.Debug("table group", "group", group, "tables", len(tables))
 	}
 
-	// Create and start server
-	server := web.NewServer(service)
+	// Create server with config
+	server := web.NewServer(service, cfg)
 
 	// Create cancellable context for background jobs
 	jobCtx, cancelJobs := context.WithCancel(context.Background())
 
-	// Start archive scheduler
+	// Start archive scheduler with config values
 	go service.StartArchiveScheduler(jobCtx, core.ArchiveConfig{
-		HotRetentionDays:      90,
-		ArchiveRetentionYears: 7,
-		BatchSize:             5000,
-		CheckInterval:         24 * time.Hour,
+		HotRetentionDays:      cfg.Archive.HotRetentionDays,
+		ArchiveRetentionYears: cfg.Archive.ArchiveRetentionYears,
+		BatchSize:             cfg.Archive.BatchSize,
+		CheckInterval:         cfg.Archive.CheckInterval,
 	})
 
 	// Graceful shutdown
@@ -98,22 +116,33 @@ func main() {
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
 
-		log.Println("Shutting down...")
+		slog.Info("shutting down...")
 
 		// Stop background jobs
 		cancelJobs()
 
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout)
 		defer cancel()
 
+		// Wait for active uploads to complete (with timeout)
+		uploadStatus := service.UploadLimiterStatus()
+		if uploadStatus.Active > 0 {
+			slog.Info("waiting for uploads to complete", "active", uploadStatus.Active)
+			if err := service.WaitForUploads(shutdownCtx); err != nil {
+				slog.Warn("uploads did not complete in time", "error", err)
+			} else {
+				slog.Info("all uploads completed")
+			}
+		}
+
 		if err := server.Shutdown(shutdownCtx); err != nil {
-			log.Printf("Shutdown error: %v", err)
+			slog.Error("shutdown error", "error", err)
 		}
 	}()
 
-	// Start server
-	log.Printf("Server starting on %s", addr)
-	if err := server.Start(addr); err != nil {
-		log.Printf("Server stopped: %v", err)
+	// Start server (uses addr from config internally)
+	slog.Info("server starting", "addr", cfg.Server.Addr())
+	if err := server.Start(); err != nil {
+		slog.Info("server stopped", "error", err)
 	}
 }

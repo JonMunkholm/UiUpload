@@ -1,15 +1,34 @@
 package core
 
+// audit.go provides comprehensive audit logging for all data modifications.
+//
+// Every change to data is recorded with:
+//   - Who: User ID, email, name, IP address, user agent
+//   - What: Action type, affected table, row key, old/new values
+//   - When: Timestamp with timezone
+//   - Context: Upload ID, batch ID, related audit entries
+//
+// Audit entries are assigned severity levels (low/medium/high/critical) based
+// on the impact of the action. Old entries are automatically archived to cold
+// storage based on the configured retention policy.
+//
+// The audit log supports:
+//   - Filtering by table, action, severity, time range
+//   - Streaming export for large datasets
+//   - CSV export for compliance and reporting
+
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"time"
 
 	db "github.com/JonMunkholm/TUI/internal/database"
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -117,20 +136,20 @@ func (s *Service) LogAudit(ctx context.Context, params AuditLogParams) (*AuditEn
 		Action:   string(params.Action),
 		Severity: string(severity),
 		TableKey: params.TableKey,
-		UserID:   toPgText(params.UserID),
-		UserEmail: toPgText(params.UserEmail),
-		UserName: toPgText(params.UserName),
-		UserAgent: toPgText(params.UserAgent),
-		RowKey:    toPgText(params.RowKey),
-		ColumnName: toPgText(params.ColumnName),
-		OldValue:  toPgText(params.OldValue),
-		NewValue:  toPgText(params.NewValue),
+		UserID:   ToPgText(params.UserID),
+		UserEmail: ToPgText(params.UserEmail),
+		UserName: ToPgText(params.UserName),
+		UserAgent: ToPgText(params.UserAgent),
+		RowKey:    ToPgText(params.RowKey),
+		ColumnName: ToPgText(params.ColumnName),
+		OldValue:  ToPgText(params.OldValue),
+		NewValue:  ToPgText(params.NewValue),
 		RowData:   rowDataJSON,
-		RowsAffected: toPgInt4(params.RowsAffected),
-		UploadID:  toPgUUID(params.UploadID),
-		BatchID:   toPgUUID(params.BatchID),
-		RelatedAuditID: toPgUUID(params.RelatedAuditID),
-		Reason:    toPgText(params.Reason),
+		RowsAffected: ToPgInt4(params.RowsAffected),
+		UploadID:  ToPgUUID(params.UploadID),
+		BatchID:   ToPgUUID(params.BatchID),
+		RelatedAuditID: ToPgUUID(params.RelatedAuditID),
+		Reason:    ToPgText(params.Reason),
 	}
 
 	// Handle IP address - strip port if present and parse
@@ -224,9 +243,62 @@ func (s *Service) GetAuditLogForExport(ctx context.Context, filter AuditLogFilte
 	return s.GetAuditLog(ctx, filter)
 }
 
+// ExportAuditLog returns audit entries as CSV data.
+// Implements the AuditLogger interface for exporting to external systems.
+func (s *Service) ExportAuditLog(ctx context.Context, opts AuditLogFilter) (io.Reader, error) {
+	entries, err := s.GetAuditLogForExport(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	var buf bytes.Buffer
+	w := csv.NewWriter(&buf)
+
+	// Write header row
+	header := []string{
+		"ID", "Action", "Severity", "Table", "User Email", "User Name",
+		"IP Address", "Row Key", "Column", "Old Value", "New Value",
+		"Rows Affected", "Upload ID", "Reason", "Created At",
+	}
+	if err := w.Write(header); err != nil {
+		return nil, fmt.Errorf("write CSV header: %w", err)
+	}
+
+	// Write data rows
+	for _, e := range entries {
+		row := []string{
+			e.ID,
+			string(e.Action),
+			string(e.Severity),
+			e.TableKey,
+			e.UserEmail,
+			e.UserName,
+			e.IPAddress,
+			e.RowKey,
+			e.ColumnName,
+			e.OldValue,
+			e.NewValue,
+			fmt.Sprintf("%d", e.RowsAffected),
+			e.UploadID,
+			e.Reason,
+			e.CreatedAt.Format(time.RFC3339),
+		}
+		if err := w.Write(row); err != nil {
+			return nil, fmt.Errorf("write CSV row: %w", err)
+		}
+	}
+
+	w.Flush()
+	if err := w.Error(); err != nil {
+		return nil, fmt.Errorf("flush CSV: %w", err)
+	}
+
+	return bytes.NewReader(buf.Bytes()), nil
+}
+
 // GetAuditLogByID retrieves a single audit log entry by ID.
 func (s *Service) GetAuditLogByID(ctx context.Context, id string) (*AuditEntry, error) {
-	pgUUID := toPgUUID(id)
+	pgUUID := ToPgUUID(id)
 	row, err := db.New(s.pool).GetAuditLogByID(ctx, pgUUID)
 	if err != nil {
 		return nil, err
@@ -258,6 +330,59 @@ func (s *Service) CountAuditLog(ctx context.Context, filter AuditLogFilter) (int
 	var count int64
 	err := s.pool.QueryRow(ctx, query, args...).Scan(&count)
 	return count, err
+}
+
+// StreamAuditLog streams audit log entries row by row via callback, avoiding memory accumulation.
+// Used for large CSV exports. Returns after all rows are processed or on first error.
+func (s *Service) StreamAuditLog(ctx context.Context, filter AuditLogFilter, callback func(entry AuditEntry) error) error {
+	// Build WHERE clause dynamically
+	wb := NewWhereBuilder()
+	wb.Add("action", string(filter.Action))
+	wb.Add("table_key", filter.TableKey)
+	wb.Add("severity", filter.Severity)
+
+	// Add time range (always applied)
+	startTime := filter.StartTime
+	if startTime.IsZero() {
+		startTime = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+	}
+	endTime := filter.EndTime
+	if endTime.IsZero() {
+		endTime = time.Now().Add(24 * time.Hour)
+	}
+	wb.AddTimestampRange("created_at", startTime, endTime)
+
+	whereClause, args := wb.Build()
+
+	// Build complete query without LIMIT for streaming
+	query := `SELECT id, action, severity, table_key, user_id, user_email, user_name,
+		ip_address, user_agent, row_key, column_name, old_value, new_value,
+		row_data, rows_affected, upload_id, batch_id, related_audit_id, reason, created_at
+		FROM audit_log` + whereClause + ` ORDER BY created_at DESC`
+
+	rows, err := s.pool.Query(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		// Check for context cancellation (user closed browser)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		entry, err := scanAuditLogRow(rows)
+		if err != nil {
+			return err
+		}
+
+		if err := callback(*entry); err != nil {
+			return err
+		}
+	}
+
+	return rows.Err()
 }
 
 // GetAuditLogArchive retrieves archived audit log entries.
@@ -318,46 +443,6 @@ func (s *Service) ArchiveOldAuditLogs(ctx context.Context, daysToKeep int) (int,
 	return archivedCount, nil
 }
 
-// Helper functions for type conversion
-
-func toPgText(s string) pgtype.Text {
-	if s == "" {
-		return pgtype.Text{Valid: false}
-	}
-	return pgtype.Text{String: s, Valid: true}
-}
-
-func toPgInt4(i int) pgtype.Int4 {
-	if i == 0 {
-		return pgtype.Int4{Valid: false}
-	}
-	return pgtype.Int4{Int32: int32(i), Valid: true}
-}
-
-func toPgUUID(s string) pgtype.UUID {
-	if s == "" {
-		return pgtype.UUID{Valid: false}
-	}
-	parsed, err := uuid.Parse(s)
-	if err != nil {
-		return pgtype.UUID{Valid: false}
-	}
-	return pgtype.UUID{Bytes: parsed, Valid: true}
-}
-
-func uuidToString(u pgtype.UUID) string {
-	if !u.Valid {
-		return ""
-	}
-	return uuid.UUID(u.Bytes).String()
-}
-
-// pgUUIDToString converts a pgtype.UUID to its string representation.
-// Public alias for use by other files in the core package.
-func pgUUIDToString(u pgtype.UUID) string {
-	return uuidToString(u)
-}
-
 // scanAuditLogRow scans a single row from audit_log or audit_log_archive into an AuditEntry.
 // Column order must match: id, action, severity, table_key, user_id, user_email, user_name,
 // ip_address, user_agent, row_key, column_name, old_value, new_value, row_data, rows_affected,
@@ -397,7 +482,7 @@ func scanAuditLogRow(rows pgx.Rows) (*AuditEntry, error) {
 	}
 
 	entry := &AuditEntry{
-		ID:        uuidToString(id),
+		ID:        PgUUIDToString(id),
 		Action:    AuditAction(action),
 		Severity:  AuditSeverity(severity),
 		TableKey:  tableKey,
@@ -437,9 +522,9 @@ func scanAuditLogRow(rows pgx.Rows) (*AuditEntry, error) {
 	if rowsAffected.Valid {
 		entry.RowsAffected = int(rowsAffected.Int32)
 	}
-	entry.UploadID = uuidToString(uploadID)
-	entry.BatchID = uuidToString(batchID)
-	entry.RelatedAuditID = uuidToString(relatedAuditID)
+	entry.UploadID = PgUUIDToString(uploadID)
+	entry.BatchID = PgUUIDToString(batchID)
+	entry.RelatedAuditID = PgUUIDToString(relatedAuditID)
 	if reason.Valid {
 		entry.Reason = reason.String
 	}
@@ -451,7 +536,7 @@ func scanAuditLogRow(rows pgx.Rows) (*AuditEntry, error) {
 // Used by sqlc-generated queries that return db.AuditLog.
 func dbAuditLogToEntry(row db.AuditLog) *AuditEntry {
 	entry := &AuditEntry{
-		ID:        uuidToString(row.ID),
+		ID:        PgUUIDToString(row.ID),
 		Action:    AuditAction(row.Action),
 		Severity:  AuditSeverity(row.Severity),
 		TableKey:  row.TableKey,
@@ -467,7 +552,7 @@ func dbAuditLogToEntry(row db.AuditLog) *AuditEntry {
 // Used by sqlc-generated queries that return db.AuditLogArchive.
 func dbAuditLogArchiveToEntry(row db.AuditLogArchive) *AuditEntry {
 	entry := &AuditEntry{
-		ID:        uuidToString(row.ID),
+		ID:        PgUUIDToString(row.ID),
 		Action:    AuditAction(row.Action),
 		Severity:  AuditSeverity(row.Severity),
 		TableKey:  row.TableKey,
@@ -523,9 +608,9 @@ func populateOptionalFields(entry *AuditEntry,
 	if rowsAffected.Valid {
 		entry.RowsAffected = int(rowsAffected.Int32)
 	}
-	entry.UploadID = uuidToString(uploadID)
-	entry.BatchID = uuidToString(batchID)
-	entry.RelatedAuditID = uuidToString(relatedAuditID)
+	entry.UploadID = PgUUIDToString(uploadID)
+	entry.BatchID = PgUUIDToString(batchID)
+	entry.RelatedAuditID = PgUUIDToString(relatedAuditID)
 	if reason.Valid {
 		entry.Reason = reason.String
 	}
