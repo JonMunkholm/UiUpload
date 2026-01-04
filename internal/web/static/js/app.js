@@ -121,6 +121,38 @@ document.body.addEventListener('htmx:afterSettle', function() {
 });
 
 // ============================================================================
+// CARD OVERFLOW MENUS
+// ============================================================================
+
+function toggleCardMenu(tableKey) {
+    const menu = document.getElementById('card-menu-' + tableKey);
+    if (!menu) return;
+
+    const wasHidden = menu.classList.contains('hidden');
+
+    // Close all other menus first
+    closeCardMenus();
+
+    // Toggle this menu
+    if (wasHidden) {
+        menu.classList.remove('hidden');
+    }
+}
+
+function closeCardMenus() {
+    document.querySelectorAll('[id^="card-menu-"]').forEach(menu => {
+        menu.classList.add('hidden');
+    });
+}
+
+// Close card menus when clicking outside
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('[id^="card-menu-"]') && !e.target.closest('button[aria-label="More actions"]')) {
+        closeCardMenus();
+    }
+});
+
+// ============================================================================
 // TABLE LOADING INDICATOR
 // ============================================================================
 
@@ -3557,6 +3589,72 @@ async function executeRollback() {
 }
 
 // ============================================================================
+// Reset All Data Modal
+// ============================================================================
+
+function showResetAllModal() {
+    const input = document.getElementById('reset-all-confirm-input');
+    const btn = document.getElementById('reset-all-confirm-btn');
+    if (input) input.value = '';
+    if (btn) btn.disabled = true;
+    showModal('reset-all-modal');
+    // Focus the input after showing
+    setTimeout(() => input && input.focus(), 100);
+}
+
+function hideResetAllModal() {
+    hideModal('reset-all-modal');
+    const input = document.getElementById('reset-all-confirm-input');
+    if (input) input.value = '';
+}
+
+function validateResetAllInput() {
+    const input = document.getElementById('reset-all-confirm-input');
+    const btn = document.getElementById('reset-all-confirm-btn');
+    if (!input || !btn) return;
+    btn.disabled = input.value.trim() !== 'DELETE ALL';
+}
+
+async function executeResetAll() {
+    const input = document.getElementById('reset-all-confirm-input');
+    const btn = document.getElementById('reset-all-confirm-btn');
+
+    if (!input || input.value.trim() !== 'DELETE ALL') return;
+
+    // Disable button and show loading state
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Deleting...';
+    }
+
+    try {
+        const response = await fetch('/api/reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (response.ok) {
+            hideResetAllModal();
+            showToast('All data has been reset');
+            // Refresh the page to show updated state
+            window.location.reload();
+        } else {
+            const result = await response.json();
+            showToast('Reset failed: ' + (result.error || 'Unknown error'), true);
+        }
+    } catch (e) {
+        console.error('Reset all error:', e);
+        showToast('Reset failed: ' + e.message, true);
+    } finally {
+        // Reset button state
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Reset All Data';
+        }
+    }
+}
+
+// ============================================================================
 // Bulk Edit
 // ============================================================================
 
@@ -3568,6 +3666,10 @@ function showBulkEditModal() {
     // Update count in modal
     const countEl = document.getElementById('bulk-edit-count');
     if (countEl) countEl.textContent = count;
+
+    // Update singular/plural label
+    const labelEl = document.getElementById('bulk-edit-rows-label');
+    if (labelEl) labelEl.textContent = count === 1 ? 'Row' : 'Rows';
 
     // Populate column dropdown with editable columns (exclude unique key columns)
     populateBulkEditColumns();

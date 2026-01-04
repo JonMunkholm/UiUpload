@@ -351,6 +351,7 @@ func (s *Server) setupRoutes() {
 	s.router.Get("/table/{tableKey}", s.handleTableView)
 	s.router.Get("/upload/{uploadID}", s.handleUploadDetail)
 	s.router.Get("/audit-log", s.handleAuditLog)
+	s.router.Get("/settings", s.handleSettings)
 
 	// API routes
 	s.router.Route("/api", func(r chi.Router) {

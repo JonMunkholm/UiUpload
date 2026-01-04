@@ -19,7 +19,7 @@ const TemplateMatchThreshold = 0.7
 
 // DefaultPageSize is the default number of rows per page in table views.
 // Used when the client doesn't specify a page size.
-const DefaultPageSize = 50
+const DefaultPageSize = 25
 
 // DefaultHistoryLimit is the default number of history entries to retrieve.
 // Applies to upload history, audit log, and similar paginated lists.

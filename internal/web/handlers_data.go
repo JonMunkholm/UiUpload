@@ -53,6 +53,12 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	templates.Dashboard(sidebar, groups).Render(ctx, w)
 }
 
+// handleSettings renders the settings page.
+func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
+	sidebar := templates.SidebarParams{ActivePage: "settings"}
+	templates.SettingsPage(sidebar).Render(r.Context(), w)
+}
+
 // handleListTables returns all tables organized by group.
 func (s *Server) handleListTables(w http.ResponseWriter, r *http.Request) {
 	tables := s.service.ListTablesByGroup()
