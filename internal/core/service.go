@@ -44,11 +44,26 @@ type activeUpload struct {
 	FileName   string
 	Cancel     context.CancelFunc
 	Progress   UploadProgress
+	ProgressMu sync.RWMutex   // Protects Progress field from concurrent access
 	Result     *UploadResult
 	Done       chan struct{}
 	Listeners  []chan UploadProgress
 	ListenerMu sync.Mutex
 	Mapping    map[string]int // User-provided column mapping: expected column -> CSV index
+}
+
+// setProgress updates the progress atomically using the provided modifier function.
+func (u *activeUpload) setProgress(fn func(*UploadProgress)) {
+	u.ProgressMu.Lock()
+	defer u.ProgressMu.Unlock()
+	fn(&u.Progress)
+}
+
+// getProgress returns a copy of the current progress for thread-safe reading.
+func (u *activeUpload) getProgress() UploadProgress {
+	u.ProgressMu.RLock()
+	defer u.ProgressMu.RUnlock()
+	return u.Progress
 }
 
 // NewService creates a new Service instance with the given configuration.
@@ -89,12 +104,15 @@ func (s *Service) WaitForUploads(ctx context.Context) error {
 
 // notifyProgress sends progress updates to all listeners.
 func (upload *activeUpload) notifyProgress() {
+	// Get thread-safe copy of progress before acquiring listener lock
+	progress := upload.getProgress()
+
 	upload.ListenerMu.Lock()
 	defer upload.ListenerMu.Unlock()
 
 	for _, ch := range upload.Listeners {
 		select {
-		case ch <- upload.Progress:
+		case ch <- progress:
 		default:
 			// Listener is slow, skip this update
 		}

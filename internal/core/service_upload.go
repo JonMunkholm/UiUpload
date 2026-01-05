@@ -27,7 +27,7 @@ func (s *Service) StartUpload(ctx context.Context, tableKey string, fileName str
 
 	// Acquire upload slot (blocks until available or timeout)
 	if err := s.uploadLimiter.Acquire(ctx); err != nil {
-		return "", err
+		return "", fmt.Errorf("acquire upload slot for %s: %w", tableKey, err)
 	}
 
 	uploadID := uuid.New().String()
@@ -65,8 +65,10 @@ func (s *Service) StartUpload(ctx context.Context, tableKey string, fileName str
 					"table", tableKey,
 					"panic", r,
 				)
-				upload.Progress.Phase = PhaseFailed
-				upload.Progress.Error = fmt.Sprintf("internal error: %v", r)
+				upload.setProgress(func(p *UploadProgress) {
+					p.Phase = PhaseFailed
+					p.Error = fmt.Sprintf("internal error: %v", r)
+				})
 				upload.notifyProgress()
 				upload.closeListeners()
 				close(upload.Done)
@@ -101,7 +103,7 @@ func (s *Service) StartUploadStreaming(ctx context.Context, tableKey string, fil
 
 	// Acquire upload slot (blocks until available or timeout)
 	if err := s.uploadLimiter.Acquire(ctx); err != nil {
-		return "", err
+		return "", fmt.Errorf("acquire upload slot for %s: %w", tableKey, err)
 	}
 
 	uploadID := uuid.New().String()
@@ -143,8 +145,10 @@ func (s *Service) StartUploadStreaming(ctx context.Context, tableKey string, fil
 					"table", tableKey,
 					"panic", r,
 				)
-				upload.Progress.Phase = PhaseFailed
-				upload.Progress.Error = fmt.Sprintf("internal error: %v", r)
+				upload.setProgress(func(p *UploadProgress) {
+					p.Phase = PhaseFailed
+					p.Error = fmt.Sprintf("internal error: %v", r)
+				})
 				upload.notifyProgress()
 				upload.closeListeners()
 				close(upload.Done)
@@ -170,11 +174,14 @@ func (s *Service) SubscribeProgress(uploadID string) (<-chan UploadProgress, err
 
 	ch := make(chan UploadProgress, 10)
 
+	// Get thread-safe copy of current progress before acquiring listener lock
+	currentProgress := upload.getProgress()
+
 	upload.ListenerMu.Lock()
 	upload.Listeners = append(upload.Listeners, ch)
 	// Send current progress immediately
 	select {
-	case ch <- upload.Progress:
+	case ch <- currentProgress:
 	default:
 	}
 	upload.ListenerMu.Unlock()
@@ -223,7 +230,7 @@ func (s *Service) GetUploadProgress(uploadID string) (UploadProgress, error) {
 		return UploadProgress{}, fmt.Errorf("upload not found: %s", uploadID)
 	}
 
-	return upload.Progress, nil
+	return upload.getProgress(), nil
 }
 
 // TableStats contains statistics for a single table.

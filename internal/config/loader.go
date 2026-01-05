@@ -213,6 +213,11 @@ func (c *Config) Validate() error {
 		errs = append(errs, "ARCHIVE_CHECK_INTERVAL must be positive")
 	}
 
+	// Security validation
+	if c.Security.RequireAPIKey && len(c.Security.APIKeys) == 0 {
+		errs = append(errs, "REQUIRE_API_KEY is true but API_KEYS is empty; configure at least one API key or disable auth")
+	}
+
 	// Logging validation
 	validLevels := map[string]bool{"debug": true, "info": true, "warn": true, "error": true}
 	if !validLevels[strings.ToLower(c.Logging.Level)] {

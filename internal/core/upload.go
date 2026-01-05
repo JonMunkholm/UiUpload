@@ -16,9 +16,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// MaxFileSize is the maximum allowed CSV file size (100MB).
-var MaxFileSize int64 = 100 * 1024 * 1024
-
 // MaxHeaderSearchRows is the maximum number of rows to scan for the header.
 var MaxHeaderSearchRows = 20
 
@@ -43,10 +40,6 @@ func (s *Service) processUpload(ctx context.Context, upload *activeUpload, def T
 	result := s.processStreamingRecords(ctx, upload, def, fileData, upload.FileName, startTime)
 	upload.Result = result
 }
-
-// BatchSize is the number of rows to insert in a single batch.
-// 500 is a good balance between network efficiency and memory usage.
-var BatchSize = 500
 
 // validatedRow holds a validated row ready for insertion.
 type validatedRow struct {
@@ -379,7 +372,7 @@ func stripBOM(data []byte) []byte {
 //
 // The streaming approach:
 // 1. Buffer first MaxHeaderSearchRows for header detection
-// 2. Stream remaining rows, accumulating batches of BatchSize
+// 2. Stream remaining rows, accumulating batches of s.cfg.Upload.BatchSize
 // 3. Validate and insert each batch before reading more
 // 4. Report progress using bytes read / total bytes
 func (s *Service) processStreamingRecords(ctx context.Context, upload *activeUpload, def TableDefinition, fileData []byte, fileName string, startTime time.Time) *UploadResult {
@@ -405,9 +398,11 @@ func (s *Service) processStreamingRecords(ctx context.Context, upload *activeUpl
 	}
 
 	// Initialize progress with byte-based tracking
-	upload.Progress.Phase = PhaseReading
-	upload.Progress.BytesTotal = totalBytes
-	upload.Progress.BytesRead = 0
+	upload.setProgress(func(p *UploadProgress) {
+		p.Phase = PhaseReading
+		p.BytesTotal = totalBytes
+		p.BytesRead = 0
+	})
 	upload.notifyProgress()
 
 	// Create CSV reader
@@ -424,8 +419,10 @@ func (s *Service) processStreamingRecords(ctx context.Context, upload *activeUpl
 		}
 		if err != nil {
 			result.Error = fmt.Sprintf("read CSV: %v", err)
-			upload.Progress.Phase = PhaseFailed
-			upload.Progress.Error = result.Error
+			upload.setProgress(func(p *UploadProgress) {
+				p.Phase = PhaseFailed
+				p.Error = result.Error
+			})
 			upload.notifyProgress()
 			return result
 		}
@@ -453,8 +450,10 @@ func (s *Service) processStreamingRecords(ctx context.Context, upload *activeUpl
 		headerIdx := findHeaderInRecords(headerBuffer, def.Info.Columns)
 		if headerIdx < 0 {
 			result.Error = fmt.Sprintf("header not found (expected: %v)", def.Info.Columns)
-			upload.Progress.Phase = PhaseFailed
-			upload.Progress.Error = result.Error
+			upload.setProgress(func(p *UploadProgress) {
+				p.Phase = PhaseFailed
+				p.Error = result.Error
+			})
 			upload.notifyProgress()
 			return result
 		}
@@ -477,21 +476,31 @@ func (s *Service) processStreamingRecords(ctx context.Context, upload *activeUpl
 	}
 	uploadID, err := db.New(s.pool).CreateUploadRecord(ctx, createParams)
 	if err != nil {
-		uploadID = pgtype.UUID{}
+		result.Error = fmt.Sprintf("create upload record: %v", err)
+		upload.setProgress(func(p *UploadProgress) {
+			p.Phase = PhaseFailed
+			p.Error = result.Error
+		})
+		upload.notifyProgress()
+		return result
 	}
 
 	// Begin transaction
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		result.Error = fmt.Sprintf("begin transaction: %v", err)
-		upload.Progress.Phase = PhaseFailed
-		upload.Progress.Error = result.Error
+		upload.setProgress(func(p *UploadProgress) {
+			p.Phase = PhaseFailed
+			p.Error = result.Error
+		})
 		upload.notifyProgress()
 		return result
 	}
 	defer tx.Rollback(ctx)
 
-	upload.Progress.Phase = PhaseInserting
+	upload.setProgress(func(p *UploadProgress) {
+		p.Phase = PhaseInserting
+	})
 	upload.notifyProgress()
 
 	var failedRows []FailedRow
@@ -499,7 +508,7 @@ func (s *Service) processStreamingRecords(ctx context.Context, upload *activeUpl
 	lineNum := headerRowIndex + 2 // 1-indexed, after header
 
 	// Pre-allocate batch slice (reused across batches)
-	batch := make([]validatedRow, 0, BatchSize)
+	batch := make([]validatedRow, 0, s.cfg.Upload.BatchSize)
 
 	// Helper to process and insert a batch
 	flushBatch := func() error {
@@ -511,10 +520,15 @@ func (s *Service) processStreamingRecords(ctx context.Context, upload *activeUpl
 		batchInserted := len(batch) - batchFailed
 		result.Inserted += batchInserted
 
-		// Update progress
-		upload.Progress.BytesRead = cr.read
-		upload.Progress.Inserted = result.Inserted
-		upload.Progress.Skipped = len(failedRows)
+		// Update progress (thread-safe)
+		bytesRead := cr.read
+		inserted := result.Inserted
+		skipped := len(failedRows)
+		upload.setProgress(func(p *UploadProgress) {
+			p.BytesRead = bytesRead
+			p.Inserted = inserted
+			p.Skipped = skipped
+		})
 		upload.notifyProgress()
 
 		// Reset batch (reuse backing array)
@@ -568,7 +582,7 @@ func (s *Service) processStreamingRecords(ctx context.Context, upload *activeUpl
 		lineNum++
 
 		// Flush batch if full
-		if len(batch) >= BatchSize {
+		if len(batch) >= s.cfg.Upload.BatchSize {
 			if err := flushBatch(); err != nil {
 				return result
 			}
@@ -580,7 +594,9 @@ func (s *Service) processStreamingRecords(ctx context.Context, upload *activeUpl
 		// Check for cancellation periodically
 		if totalProcessed%ContextCheckInterval == 0 {
 			if ctx.Err() != nil {
-				upload.Progress.Phase = PhaseCancelled
+				upload.setProgress(func(p *UploadProgress) {
+					p.Phase = PhaseCancelled
+				})
 				upload.notifyProgress()
 				result.Error = "cancelled"
 				return result
@@ -606,7 +622,7 @@ func (s *Service) processStreamingRecords(ctx context.Context, upload *activeUpl
 		lineNum++
 
 		// Flush batch if full
-		if len(batch) >= BatchSize {
+		if len(batch) >= s.cfg.Upload.BatchSize {
 			if err := flushBatch(); err != nil {
 				return result
 			}
@@ -621,8 +637,10 @@ func (s *Service) processStreamingRecords(ctx context.Context, upload *activeUpl
 	// Commit transaction
 	if err := tx.Commit(ctx); err != nil {
 		result.Error = fmt.Sprintf("commit: %v", err)
-		upload.Progress.Phase = PhaseFailed
-		upload.Progress.Error = result.Error
+		upload.setProgress(func(p *UploadProgress) {
+			p.Phase = PhaseFailed
+			p.Error = result.Error
+		})
 		upload.notifyProgress()
 		return result
 	}
@@ -690,10 +708,12 @@ func (s *Service) processStreamingRecords(ctx context.Context, upload *activeUpl
 	result.FailedRows = failedRows
 	result.Duration = time.Since(startTime)
 
-	upload.Progress.Phase = PhaseComplete
-	upload.Progress.BytesRead = cr.total
-	upload.Progress.Inserted = result.Inserted
-	upload.Progress.Skipped = result.Skipped
+	upload.setProgress(func(p *UploadProgress) {
+		p.Phase = PhaseComplete
+		p.BytesRead = cr.total
+		p.Inserted = result.Inserted
+		p.Skipped = result.Skipped
+	})
 	upload.notifyProgress()
 
 	return result
@@ -723,7 +743,9 @@ func (s *Service) processUploadStreaming(ctx context.Context, upload *activeUplo
 	}
 
 	// Initialize progress
-	upload.Progress.Phase = PhaseReading
+	upload.setProgress(func(p *UploadProgress) {
+		p.Phase = PhaseReading
+	})
 	upload.notifyProgress()
 
 	// Create CSV reader directly from the streaming reader
@@ -741,8 +763,10 @@ func (s *Service) processUploadStreaming(ctx context.Context, upload *activeUplo
 		}
 		if err != nil {
 			result.Error = fmt.Sprintf("read CSV: %v", err)
-			upload.Progress.Phase = PhaseFailed
-			upload.Progress.Error = result.Error
+			upload.setProgress(func(p *UploadProgress) {
+				p.Phase = PhaseFailed
+				p.Error = result.Error
+			})
 			upload.notifyProgress()
 			upload.Result = result
 			return
@@ -752,8 +776,10 @@ func (s *Service) processUploadStreaming(ctx context.Context, upload *activeUplo
 
 	if len(headerBuffer) == 0 {
 		result.Error = "empty file"
-		upload.Progress.Phase = PhaseFailed
-		upload.Progress.Error = result.Error
+		upload.setProgress(func(p *UploadProgress) {
+			p.Phase = PhaseFailed
+			p.Error = result.Error
+		})
 		upload.notifyProgress()
 		upload.Result = result
 		return
@@ -775,8 +801,10 @@ func (s *Service) processUploadStreaming(ctx context.Context, upload *activeUplo
 		headerIdx := findHeaderInRecords(headerBuffer, def.Info.Columns)
 		if headerIdx < 0 {
 			result.Error = fmt.Sprintf("header not found (expected: %v)", def.Info.Columns)
-			upload.Progress.Phase = PhaseFailed
-			upload.Progress.Error = result.Error
+			upload.setProgress(func(p *UploadProgress) {
+				p.Phase = PhaseFailed
+				p.Error = result.Error
+			})
 			upload.notifyProgress()
 			upload.Result = result
 			return
@@ -800,22 +828,33 @@ func (s *Service) processUploadStreaming(ctx context.Context, upload *activeUplo
 	}
 	uploadID, err := db.New(s.pool).CreateUploadRecord(ctx, createParams)
 	if err != nil {
-		uploadID = pgtype.UUID{}
+		result.Error = fmt.Sprintf("create upload record: %v", err)
+		upload.setProgress(func(p *UploadProgress) {
+			p.Phase = PhaseFailed
+			p.Error = result.Error
+		})
+		upload.notifyProgress()
+		upload.Result = result
+		return
 	}
 
 	// Begin transaction
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		result.Error = fmt.Sprintf("begin transaction: %v", err)
-		upload.Progress.Phase = PhaseFailed
-		upload.Progress.Error = result.Error
+		upload.setProgress(func(p *UploadProgress) {
+			p.Phase = PhaseFailed
+			p.Error = result.Error
+		})
 		upload.notifyProgress()
 		upload.Result = result
 		return
 	}
 	defer tx.Rollback(ctx)
 
-	upload.Progress.Phase = PhaseInserting
+	upload.setProgress(func(p *UploadProgress) {
+		p.Phase = PhaseInserting
+	})
 	upload.notifyProgress()
 
 	var failedRows []FailedRow
@@ -823,7 +862,7 @@ func (s *Service) processUploadStreaming(ctx context.Context, upload *activeUplo
 	lineNum := headerRowIndex + 2 // 1-indexed, after header
 
 	// Pre-allocate batch slice (reused across batches)
-	batch := make([]validatedRow, 0, BatchSize)
+	batch := make([]validatedRow, 0, s.cfg.Upload.BatchSize)
 
 	// Helper to process and insert a batch
 	flushBatch := func() error {
@@ -835,10 +874,15 @@ func (s *Service) processUploadStreaming(ctx context.Context, upload *activeUplo
 		batchInserted := len(batch) - batchFailed
 		result.Inserted += batchInserted
 
-		// Update progress using streaming byte count
-		upload.Progress.BytesRead = reader.BytesRead
-		upload.Progress.Inserted = result.Inserted
-		upload.Progress.Skipped = len(failedRows)
+		// Update progress using streaming byte count (thread-safe)
+		bytesRead := reader.BytesRead
+		inserted := result.Inserted
+		skipped := len(failedRows)
+		upload.setProgress(func(p *UploadProgress) {
+			p.BytesRead = bytesRead
+			p.Inserted = inserted
+			p.Skipped = skipped
+		})
 		upload.notifyProgress()
 
 		// Reset batch (reuse backing array)
@@ -892,7 +936,7 @@ func (s *Service) processUploadStreaming(ctx context.Context, upload *activeUplo
 		lineNum++
 
 		// Flush batch if full
-		if len(batch) >= BatchSize {
+		if len(batch) >= s.cfg.Upload.BatchSize {
 			if err := flushBatch(); err != nil {
 				upload.Result = result
 				return
@@ -908,7 +952,9 @@ func (s *Service) processUploadStreaming(ctx context.Context, upload *activeUplo
 		// Check for cancellation periodically
 		if totalProcessed%ContextCheckInterval == 0 {
 			if ctx.Err() != nil {
-				upload.Progress.Phase = PhaseCancelled
+				upload.setProgress(func(p *UploadProgress) {
+					p.Phase = PhaseCancelled
+				})
 				upload.notifyProgress()
 				result.Error = "cancelled"
 				upload.Result = result
@@ -935,7 +981,7 @@ func (s *Service) processUploadStreaming(ctx context.Context, upload *activeUplo
 		lineNum++
 
 		// Flush batch if full
-		if len(batch) >= BatchSize {
+		if len(batch) >= s.cfg.Upload.BatchSize {
 			if err := flushBatch(); err != nil {
 				upload.Result = result
 				return
@@ -952,8 +998,10 @@ func (s *Service) processUploadStreaming(ctx context.Context, upload *activeUplo
 	// Commit transaction
 	if err := tx.Commit(ctx); err != nil {
 		result.Error = fmt.Sprintf("commit: %v", err)
-		upload.Progress.Phase = PhaseFailed
-		upload.Progress.Error = result.Error
+		upload.setProgress(func(p *UploadProgress) {
+			p.Phase = PhaseFailed
+			p.Error = result.Error
+		})
 		upload.notifyProgress()
 		upload.Result = result
 		return
@@ -1022,10 +1070,12 @@ func (s *Service) processUploadStreaming(ctx context.Context, upload *activeUplo
 	result.FailedRows = failedRows
 	result.Duration = time.Since(startTime)
 
-	upload.Progress.Phase = PhaseComplete
-	upload.Progress.BytesRead = reader.BytesRead
-	upload.Progress.Inserted = result.Inserted
-	upload.Progress.Skipped = result.Skipped
+	upload.setProgress(func(p *UploadProgress) {
+		p.Phase = PhaseComplete
+		p.BytesRead = reader.BytesRead
+		p.Inserted = result.Inserted
+		p.Skipped = result.Skipped
+	})
 	upload.notifyProgress()
 
 	upload.Result = result

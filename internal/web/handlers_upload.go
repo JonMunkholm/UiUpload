@@ -23,9 +23,10 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, MaxUploadSize)
+	maxSize := s.cfg.Upload.MaxFileSize
+	r.Body = http.MaxBytesReader(w, r.Body, maxSize)
 
-	if err := r.ParseMultipartForm(MaxUploadSize); err != nil {
+	if err := r.ParseMultipartForm(maxSize); err != nil {
 		writeError(w, http.StatusBadRequest, "file too large or invalid form")
 		return
 	}
@@ -66,9 +67,10 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, MaxUploadSize)
+	maxSize := s.cfg.Upload.MaxFileSize
+	r.Body = http.MaxBytesReader(w, r.Body, maxSize)
 
-	if err := r.ParseMultipartForm(MaxUploadSize); err != nil {
+	if err := r.ParseMultipartForm(maxSize); err != nil {
 		writeError(w, http.StatusBadRequest, "file too large or invalid form")
 		return
 	}

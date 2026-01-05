@@ -14,9 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// MaxUploadSize is the maximum allowed file size (100MB).
-const MaxUploadSize = 100 * 1024 * 1024
-
 // parseIntParam parses an integer query parameter with a default value.
 func parseIntParam(r *http.Request, name string, defaultVal int) int {
 	val := r.URL.Query().Get(name)

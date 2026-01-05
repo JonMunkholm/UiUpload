@@ -54,19 +54,28 @@ func (s *Server) handleAuditLog(w http.ResponseWriter, r *http.Request) {
 		totalCount = int64(len(entries))
 	}
 
+	// Get unfiltered count for "X of Y entries" display
+	var unfilteredCount int64
+	hasFilters := filter.Action != "" || filter.TableKey != "" ||
+		filter.Severity != "" || filter.StartDate != "" || filter.EndDate != ""
+	if hasFilters {
+		unfilteredCount, _ = s.service.CountAuditLog(r.Context(), core.AuditLogFilter{})
+	}
+
 	tables := make([]string, 0)
 	for _, def := range core.All() {
 		tables = append(tables, def.Info.Key)
 	}
 
 	params := templates.AuditLogViewParams{
-		Entries:    entries,
-		TotalCount: totalCount,
-		Page:       page,
-		PageSize:   pageSize,
-		TotalPages: int((totalCount + int64(pageSize) - 1) / int64(pageSize)),
-		Filter:     filter,
-		Tables:     tables,
+		Entries:         entries,
+		TotalCount:      totalCount,
+		UnfilteredCount: unfilteredCount,
+		Page:            page,
+		PageSize:        pageSize,
+		TotalPages:      int((totalCount + int64(pageSize) - 1) / int64(pageSize)),
+		Filter:          filter,
+		Tables:          tables,
 	}
 
 	if r.Header.Get("HX-Request") == "true" {

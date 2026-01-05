@@ -45,13 +45,21 @@ func NewServer(service *core.Service, cfg *config.Config) *Server {
 }
 
 // setupMiddleware configures middleware for all routes.
+// Note: Timeout middleware is applied per-route to avoid killing SSE/streaming endpoints.
 func (s *Server) setupMiddleware() {
 	s.router.Use(middleware.RequestID)
-	s.router.Use(middleware.RealIP)
+
+	// Only trust X-Real-IP/X-Forwarded-For headers from configured trusted proxies.
+	// This prevents IP spoofing by untrusted clients sending fake headers.
+	if len(s.cfg.Security.TrustedProxies) > 0 {
+		s.router.Use(mw.TrustedRealIP(s.cfg.Security.TrustedProxies))
+	}
+	// If no trusted proxies configured, RemoteAddr is used as-is (direct connection)
+
 	s.router.Use(mw.Logger) // Structured logging with request ID
 	s.router.Use(middleware.Recoverer)
 	s.router.Use(middleware.Compress(5))
-	s.router.Use(middleware.Timeout(s.cfg.Server.RequestTimeout))
+	// Note: Timeout is applied per-route in setupRoutes() to avoid killing SSE streams
 
 	// Security hardening
 	if s.cfg.Security.EnableCSP {
@@ -346,70 +354,99 @@ func (s *Server) setupRoutes() {
 	}
 	s.router.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
-	// Pages
-	s.router.Get("/", s.handleDashboard)
-	s.router.Get("/table/{tableKey}", s.handleTableView)
-	s.router.Get("/upload/{uploadID}", s.handleUploadDetail)
-	s.router.Get("/audit-log", s.handleAuditLog)
-	s.router.Get("/settings", s.handleSettings)
+	// Pages (with timeout)
+	s.router.Group(func(r chi.Router) {
+		r.Use(middleware.Timeout(s.cfg.Server.RequestTimeout))
+		r.Get("/", s.handleDashboard)
+		r.Get("/table/{tableKey}", s.handleTableView)
+		r.Get("/upload/{uploadID}", s.handleUploadDetail)
+		r.Get("/audit-log", s.handleAuditLog)
+		r.Get("/settings", s.handleSettings)
+	})
 
 	// API routes
 	s.router.Route("/api", func(r chi.Router) {
-		// System status
-		r.Get("/upload-queue-status", s.handleUploadQueueStatus)
-
-		// Table listing
-		r.Get("/tables", s.handleListTables)
-
-		// Template download
-		r.Get("/template/{tableKey}", s.handleDownloadTemplate)
-
-		// Data export
-		r.Get("/export/{tableKey}", s.handleExportData)
-
-		// Upload history
-		r.Get("/history/{tableKey}", s.handleUploadHistory)
-
-		// Upload operations
-		r.Post("/upload/{tableKey}", s.handleUpload)
+		// =================================================================
+		// Streaming routes (NO timeout - these can run indefinitely)
+		// =================================================================
+		// SSE progress stream - stays open until upload completes
 		r.Get("/upload/{uploadID}/progress", s.handleUploadProgress)
-		r.Get("/upload/{uploadID}/result", s.handleUploadResult)
-		r.Post("/upload/{uploadID}/cancel", s.handleCancelUpload)
+		// CSV exports - may take time for large datasets
+		r.Get("/export/{tableKey}", s.handleExportData)
+		r.Get("/audit-log/export", s.handleAuditLogExport)
 		r.Get("/upload/{uploadID}/failed-rows", s.handleExportFailedRows)
 
-		// Preview analysis
-		r.Post("/preview/{tableKey}", s.handlePreview)
+		// =================================================================
+		// Standard API routes (WITH timeout)
+		// =================================================================
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.Timeout(s.cfg.Server.RequestTimeout))
 
-		// Duplicate check
-		r.Post("/check-duplicates/{tableKey}", s.handleCheckDuplicates)
+			// System status
+			r.Get("/upload-queue-status", s.handleUploadQueueStatus)
 
-		// Delete rows
-		r.Post("/delete/{tableKey}", s.handleDeleteRows)
+			// Table listing
+			r.Get("/tables", s.handleListTables)
 
-		// Update cell
-		r.Post("/update/{tableKey}", s.handleUpdateCell)
+			// Template download
+			r.Get("/template/{tableKey}", s.handleDownloadTemplate)
 
-		// Bulk edit
-		r.Post("/bulk-edit/{tableKey}", s.handleBulkEdit)
+			// Upload history
+			r.Get("/history/{tableKey}", s.handleUploadHistory)
 
-		// Audit log
-		r.Get("/audit-log/export", s.handleAuditLogExport)
-		r.Get("/audit-log/{id}", s.handleAuditLogEntry)
+			// Upload operations (with stricter rate limit if configured)
+			r.Group(func(r chi.Router) {
+				if s.cfg.Rate.Enabled && s.cfg.Rate.UploadLimit > 0 {
+					uploadLimiter := newRateLimiter(s.cfg.Rate.UploadLimit, time.Minute)
+					r.Use(uploadLimiter.middleware)
+				}
+				r.Post("/upload/{tableKey}", s.handleUpload)
+				r.Post("/preview/{tableKey}", s.handlePreview)
+			})
 
-		// Import templates
-		r.Get("/import-templates/{tableKey}", s.handleListTemplates)
-		r.Get("/import-templates/{tableKey}/match", s.handleMatchTemplates)
-		r.Get("/import-template/{id}", s.handleGetTemplate)
-		r.Post("/import-template", s.handleCreateTemplate)
-		r.Put("/import-template/{id}", s.handleUpdateTemplate)
-		r.Delete("/import-template/{id}", s.handleDeleteTemplate)
+			// Upload read operations (no stricter rate limit)
+			r.Get("/upload/{uploadID}/result", s.handleUploadResult)
+			r.Post("/upload/{uploadID}/cancel", s.handleCancelUpload)
 
-		// Reset operations
-		r.Post("/reset/{tableKey}", s.handleReset)
-		r.Post("/reset", s.handleResetAll)
+			// Duplicate check
+			r.Post("/check-duplicates/{tableKey}", s.handleCheckDuplicates)
 
-		// Rollback operation
-		r.Post("/rollback/{uploadID}", s.handleRollbackUpload)
+			// Audit log entry detail
+			r.Get("/audit-log/{id}", s.handleAuditLogEntry)
+
+			// Import templates (read operations)
+			r.Get("/import-templates/{tableKey}", s.handleListTemplates)
+			r.Get("/import-templates/{tableKey}/match", s.handleMatchTemplates)
+			r.Get("/import-template/{id}", s.handleGetTemplate)
+			r.Post("/import-template", s.handleCreateTemplate)
+
+			// =============================================================
+			// Destructive operations (protected by API key when enabled)
+			// =============================================================
+			r.Group(func(r chi.Router) {
+				r.Use(mw.APIKeyAuth(&s.cfg.Security))
+
+				// Delete rows
+				r.Post("/delete/{tableKey}", s.handleDeleteRows)
+
+				// Update cell
+				r.Post("/update/{tableKey}", s.handleUpdateCell)
+
+				// Bulk edit
+				r.Post("/bulk-edit/{tableKey}", s.handleBulkEdit)
+
+				// Import template mutations
+				r.Put("/import-template/{id}", s.handleUpdateTemplate)
+				r.Delete("/import-template/{id}", s.handleDeleteTemplate)
+
+				// Reset operations
+				r.Post("/reset/{tableKey}", s.handleReset)
+				r.Post("/reset", s.handleResetAll)
+
+				// Rollback operation
+				r.Post("/rollback/{uploadID}", s.handleRollbackUpload)
+			})
+		})
 	})
 }
 
@@ -536,13 +573,9 @@ func (rl *rateLimiter) allow(ip string) bool {
 // middleware returns an HTTP middleware that rate limits by IP.
 func (rl *rateLimiter) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := r.RemoteAddr
-		// Use X-Real-IP if set (by RealIP middleware)
-		if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
-			ip = realIP
-		}
-
-		if !rl.allow(ip) {
+		// RemoteAddr is already set by TrustedRealIP middleware (if trusted proxy)
+		// or contains the direct connection IP (if no proxy configured)
+		if !rl.allow(r.RemoteAddr) {
 			w.Header().Set("Retry-After", "60")
 			writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 			return

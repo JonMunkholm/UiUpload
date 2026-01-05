@@ -100,6 +100,14 @@ type SecurityConfig struct {
 
 	// EnableCSP enables Content-Security-Policy headers (default: true)
 	EnableCSP bool `env:"SECURITY_ENABLE_CSP" default:"true"`
+
+	// RequireAPIKey enables API key authentication for destructive endpoints (default: false)
+	// When enabled, X-API-Key header must be present and match one of APIKeys
+	RequireAPIKey bool `env:"REQUIRE_API_KEY" default:"false"`
+
+	// APIKeys is a comma-separated list of valid API keys
+	// Only used when RequireAPIKey is true
+	APIKeys []string `env:"API_KEYS"`
 }
 
 // LoggingConfig holds logging settings.
